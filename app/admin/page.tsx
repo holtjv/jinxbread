@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
 
 export default function AdminPage() {
-  const [orders, setOrders] = useState([])
+  const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedDate, setSelectedDate] = useState(null)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -41,16 +41,12 @@ export default function AdminPage() {
     load()
   }, [])
 
-  // Get unique delivery dates
-  const dates = [...new Set(orders.map(o => o.delivery_date))].sort()
+  const dates = [...new Set(orders.map((o: any) => o.delivery_date))].sort()
+  const dateOrders = orders.filter((o: any) => o.delivery_date === selectedDate)
 
-  // Orders for selected date
-  const dateOrders = orders.filter(o => o.delivery_date === selectedDate)
-
-  // Product totals for selected date
-  const totals = {}
-  dateOrders.forEach(order => {
-    order.order_lines.forEach(line => {
+  const totals: Record<string, any> = {}
+  dateOrders.forEach((order: any) => {
+    order.order_lines.forEach((line: any) => {
       const key = `${line.product.sku}|${line.sliced}`
       if (!totals[key]) {
         totals[key] = {
@@ -64,7 +60,7 @@ export default function AdminPage() {
     })
   })
 
-  const totalsList = Object.values(totals).sort((a, b) =>
+  const totalsList = Object.values(totals).sort((a: any, b: any) =>
     a.name.localeCompare(b.name)
   )
 
@@ -74,9 +70,8 @@ export default function AdminPage() {
     <main style={{ maxWidth: 900, margin: '40px auto', padding: '0 20px' }}>
       <h1>Admin — Orders</h1>
 
-      {/* Delivery date tabs */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 32 }}>
-        {dates.map(date => (
+        {dates.map((date: any) => (
           <button
             key={date}
             onClick={() => setSelectedDate(date)}
@@ -98,7 +93,6 @@ export default function AdminPage() {
 
       {selectedDate && (
         <>
-          {/* Production totals */}
           <h2>Production totals</h2>
           {totalsList.length === 0 ? (
             <p style={{ color: '#999' }}>No orders for this date.</p>
@@ -113,7 +107,7 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {totalsList.map((t, i) => (
+                {totalsList.map((t: any, i: number) => (
                   <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
                     <td style={{ padding: '10px 0' }}>{t.name}</td>
                     <td style={{ padding: '10px 0', color: '#999' }}>{t.sku}</td>
@@ -125,9 +119,8 @@ export default function AdminPage() {
             </table>
           )}
 
-          {/* Individual orders */}
           <h2>Orders ({dateOrders.length})</h2>
-          {dateOrders.map(order => (
+          {dateOrders.map((order: any) => (
             <div key={order.id} style={{
               border: '1px solid #eee',
               borderRadius: 8,
@@ -148,7 +141,7 @@ export default function AdminPage() {
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <tbody>
-                  {order.order_lines.map((line, i) => (
+                  {order.order_lines.map((line: any, i: number) => (
                     <tr key={i} style={{ borderBottom: '1px solid #f5f5f5' }}>
                       <td style={{ padding: '4px 0' }}>{line.product.name}</td>
                       <td style={{ padding: '4px 0', color: '#999', fontSize: 13 }}>
