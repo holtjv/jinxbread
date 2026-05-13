@@ -5,14 +5,14 @@ import { createClient } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 
 export default function OrderPage() {
-  const [products, setProducts] = useState([])
-  const [deliveryWindows, setDeliveryWindows] = useState([])
-  const [customerPrices, setCustomerPrices] = useState({})
-  const [lines, setLines] = useState({})
-  const [customerId, setCustomerId] = useState(null)
+  const [products, setProducts] = useState<any[]>([])
+  const [deliveryWindows, setDeliveryWindows] = useState<any[]>([])
+  const [customerPrices, setCustomerPrices] = useState<Record<string, number>>({})
+  const [lines, setLines] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
+  const [customerId, setCustomerId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -20,25 +20,27 @@ export default function OrderPage() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
 
-      const { data: customer } = await supabase
-        .from('customers')
-        .select('id')
-        .eq('email', user.email)
-        .single()
+      if (user) {
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('id')
+          .eq('email', user.email)
+          .single()
 
-      if (customer) {
-        setCustomerId(customer.id)
+        if (customer) {
+          setCustomerId(customer.id)
 
-        const { data: prices } = await supabase
-          .from('customer_products')
-          .select('product_id, price_cents')
-          .eq('customer_id', customer.id)
+          const { data: prices } = await supabase
+            .from('customer_products')
+            .select('product_id, price_cents')
+            .eq('customer_id', customer.id)
 
-        const priceMap = {}
-        prices?.forEach(p => {
-          priceMap[p.product_id] = p.price_cents
-        })
-        setCustomerPrices(priceMap)
+          const priceMap: Record<string, number> = {}
+          prices?.forEach((p: any) => {
+            priceMap[p.product_id] = p.price_cents
+          })
+          setCustomerPrices(priceMap)
+        }
       }
 
       const { data: prods } = await supabase
@@ -54,12 +56,12 @@ export default function OrderPage() {
         .order('sort_order')
 
       setProducts(prods || [])
-      setDeliveryWindows((windows || []).sort((a, b) => a.sort_order - b.sort_order))
+      setDeliveryWindows((windows || []).sort((a: any, b: any) => a.sort_order - b.sort_order))
 
-      const initial = {}
-      windows?.forEach(w => {
+      const initial: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
+      windows?.forEach((w: any) => {
         initial[w.id] = {}
-        prods?.forEach(p => {
+        prods?.forEach((p: any) => {
           initial[w.id][p.id] = { quantity: 0, sliced: false }
         })
       })
@@ -69,31 +71,25 @@ export default function OrderPage() {
     load()
   }, [])
 
-  function getPrice(product) {
+  function getPrice(product: any) {
     const cents = customerPrices[product.id] ?? product.price_cents
     if (!cents) return null
     return (cents / 100).toFixed(2)
   }
 
-  // All dates are anchored to next Tuesday.
-  // The ordering week runs Tue-Mon, so we find next Tuesday
-  // and calculate every other day relative to it.
-  function getNextDeliveryDate(dayOfWeek) {
-    const dayIndex = { sunday:0, monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6 }
+  function getNextDeliveryDate(dayOfWeek: string) {
+    const dayIndex: Record<string, number> = { sunday:0, monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6 }
     const target = dayIndex[dayOfWeek]
     const today = new Date()
     const current = today.getDay()
 
-    // Find next Tuesday (day 2)
     let tueDiff = 2 - current
     if (tueDiff <= 0) tueDiff += 7
 
     const nextTue = new Date(today)
     nextTue.setDate(today.getDate() + tueDiff)
 
-    // Calculate offset from Tuesday within the Tue-Mon week
-    // Tue=0, Wed=1, Thu=2, Fri=3, Sat=4, Mon=6 (wraps)
-    const tuWeekOrder = { tuesday:0, wednesday:1, thursday:2, friday:3, saturday:4, sunday:5, monday:6 }
+    const tuWeekOrder: Record<string, number> = { tuesday:0, wednesday:1, thursday:2, friday:3, saturday:4, sunday:5, monday:6 }
     const offset = tuWeekOrder[dayOfWeek]
 
     const result = new Date(nextTue)
@@ -111,7 +107,7 @@ export default function OrderPage() {
     return now < sunday
   }
 
-  function updateQuantity(windowId, productId, value) {
+  function updateQuantity(windowId: string, productId: string, value: string) {
     setLines(prev => ({
       ...prev,
       [windowId]: {
@@ -124,7 +120,7 @@ export default function OrderPage() {
     }))
   }
 
-  function updateSliced(windowId, productId, value) {
+  function updateSliced(windowId: string, productId: string, value: boolean) {
     setLines(prev => ({
       ...prev,
       [windowId]: {
@@ -137,7 +133,7 @@ export default function OrderPage() {
     }))
   }
 
-  function colTotal(windowId) {
+  function colTotal(windowId: string) {
     return Object.values(lines[windowId] || {}).reduce((t, l) => t + (l.quantity || 0), 0)
   }
 
@@ -209,7 +205,7 @@ export default function OrderPage() {
 
   const orderingOpen = isOrderingOpen()
 
-  const dayShort = {
+  const dayShort: Record<string, string> = {
     monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
     thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun'
   }

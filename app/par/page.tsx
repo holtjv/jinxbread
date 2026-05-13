@@ -4,20 +4,21 @@ import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
 
 export default function ParPage() {
-  const [products, setProducts] = useState([])
-  const [deliveryWindows, setDeliveryWindows] = useState([])
-  const [pars, setPars] = useState({})
-  const [customerId, setCustomerId] = useState(null)
+  const [products, setProducts] = useState<any[]>([])
+  const [deliveryWindows, setDeliveryWindows] = useState<any[]>([])
+  const [pars, setPars] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
+  const [customerId, setCustomerId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
 
   const supabase = createClient()
 
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
       const { data: customer } = await supabase
         .from('customers')
@@ -38,20 +39,21 @@ export default function ParPage() {
         .from('delivery_windows')
         .select('*')
         .eq('active', true)
+        .order('sort_order')
 
       const { data: existingPars } = await supabase
         .from('customer_pars')
         .select('*')
         .eq('customer_id', customer.id)
 
-      const parMap = {}
-      windows?.forEach(w => {
+      const parMap: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
+      windows?.forEach((w: any) => {
         parMap[w.id] = {}
-        prods?.forEach(p => {
+        prods?.forEach((p: any) => {
           parMap[w.id][p.id] = { quantity: 0, sliced: false }
         })
       })
-      existingPars?.forEach(par => {
+      existingPars?.forEach((par: any) => {
         if (parMap[par.delivery_window_id]) {
           parMap[par.delivery_window_id][par.product_id] = {
             quantity: par.quantity,
@@ -61,14 +63,14 @@ export default function ParPage() {
       })
 
       setProducts(prods || [])
-      setDeliveryWindows(windows || [])
+      setDeliveryWindows((windows || []).sort((a: any, b: any) => a.sort_order - b.sort_order))
       setPars(parMap)
       setLoading(false)
     }
     load()
   }, [])
 
-  function updatePar(windowId, productId, field, value) {
+  function updatePar(windowId: string, productId: string, field: string, value: any) {
     setPars(prev => ({
       ...prev,
       [windowId]: {
@@ -86,9 +88,9 @@ export default function ParPage() {
     setSaved(false)
     setError(null)
 
-    const rows = []
-    deliveryWindows.forEach(w => {
-      products.forEach(p => {
+    const rows: any[] = []
+    deliveryWindows.forEach((w: any) => {
+      products.forEach((p: any) => {
         const par = pars[w.id]?.[p.id]
         if (par && par.quantity > 0) {
           rows.push({
@@ -108,7 +110,6 @@ export default function ParPage() {
       .eq('customer_id', customerId)
 
     if (deleteError) {
-      console.error('Delete error:', JSON.stringify(deleteError))
       setError('Delete failed: ' + deleteError.message)
       setSaving(false)
       return
@@ -120,7 +121,6 @@ export default function ParPage() {
         .insert(rows)
 
       if (insertError) {
-        console.error('Insert error:', JSON.stringify(insertError))
         setError('Save failed: ' + insertError.message)
         setSaving(false)
         return
@@ -142,7 +142,7 @@ export default function ParPage() {
         submitted each week — you can adjust any individual order before the cutoff.
       </p>
 
-      {deliveryWindows.map(w => (
+      {deliveryWindows.map((w: any) => (
         <div key={w.id} style={{ marginBottom: 40 }}>
           <h2 style={{ borderBottom: '2px solid #eee', paddingBottom: 8 }}>{w.label}</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -154,7 +154,7 @@ export default function ParPage() {
               </tr>
             </thead>
             <tbody>
-              {products.map(p => (
+              {products.map((p: any) => (
                 <tr key={p.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
                   <td style={{ padding: '10px 0' }}>{p.name}</td>
                   <td style={{ padding: '10px 0' }}>
@@ -163,7 +163,7 @@ export default function ParPage() {
                       min="0"
                       value={pars[w.id]?.[p.id]?.quantity || 0}
                       onChange={e => updatePar(w.id, p.id, 'quantity', e.target.value)}
-                      style={{ width: 70, padding: 4 }}
+                      style={{ width: 70, padding: 4, border: '1px solid #ccc', borderRadius: 4 }}
                     />
                   </td>
                   <td style={{ padding: '10px 0' }}>
