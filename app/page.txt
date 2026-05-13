@@ -1,0 +1,23 @@
+import { createClient } from '../lib/supabase-server'
+
+export default async function Home() {
+  const supabase = await createClient()
+  const { data: products, error } = await supabase
+    .from('products')
+    .select('*')
+
+  if (error) {
+    return <div>Error: {error.message}</div>
+  }
+
+  return (
+    <main>
+      <h1>Jinxbread</h1>
+      <ul>
+        {products.map(p => (
+          <li key={p.id}>{p.name} — lead time: {p.lead_days} days</li>
+        ))}
+      </ul>
+    </main>
+  )
+}
