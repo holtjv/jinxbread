@@ -6,9 +6,11 @@ import { useRouter } from 'next/navigation'
 
 export default function OrderPage() {
   const [products, setProducts] = useState<any[]>([])
+  const [parProductIds, setParProductIds] = useState<Set<string>>(new Set())
   const [deliveryWindows, setDeliveryWindows] = useState<any[]>([])
   const [customerPrices, setCustomerPrices] = useState<Record<string, number>>({})
   const [lines, setLines] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
+  const [notes, setNotes] = useState('')
   const [customerId, setCustomerId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -19,6 +21,9 @@ export default function OrderPage() {
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
+
+      let parQtyMap: Record<string, Record<string, number>> = {}
+      let parIds = new Set<string>()
 
       if (user) {
         const { data: customer } = await supabase
@@ -36,10 +41,20 @@ export default function OrderPage() {
             .eq('customer_id', customer.id)
 
           const priceMap: Record<string, number> = {}
-          prices?.forEach((p: any) => {
-            priceMap[p.product_id] = p.price_cents
-          })
+          prices?.forEach((p: any) => { priceMap[p.product_id] = p.price_cents })
           setCustomerPrices(priceMap)
+
+          const { data: pars } = await supabase
+            .from('customer_pars')
+            .select('product_id, delivery_window_id, quantity')
+            .eq('customer_id', customer.id)
+
+          parIds = new Set<string>(pars?.map((p: any) => p.product_id) || [])
+          pars?.forEach((p: any) => {
+            if (!parQtyMap[p.delivery_window_id]) parQtyMap[p.delivery_window_id] = {}
+            parQtyMap[p.delivery_window_id][p.product_id] = p.quantity
+          })
+          setParProductIds(parIds)
         }
       }
 
@@ -55,46 +70,46 @@ export default function OrderPage() {
         .eq('active', true)
         .order('sort_order')
 
+      const sortedWindows = (windows || []).sort((a: any, b: any) => a.sort_order - b.sort_order)
+
       setProducts(prods || [])
-      setDeliveryWindows((windows || []).sort((a: any, b: any) => a.sort_order - b.sort_order))
+      setDeliveryWindows(sortedWindows)
 
       const initial: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
-      windows?.forEach((w: any) => {
+      sortedWindows.forEach((w: any) => {
         initial[w.id] = {}
         prods?.forEach((p: any) => {
-          initial[w.id][p.id] = { quantity: 0, sliced: false }
+          initial[w.id][p.id] = {
+            quantity: parQtyMap[w.id]?.[p.id] || 0,
+            sliced: false,
+          }
         })
       })
+
       setLines(initial)
       setLoading(false)
     }
     load()
   }, [])
 
-  function getPrice(product: any) {
-    const cents = customerPrices[product.id] ?? product.price_cents
-    if (!cents) return null
-    return (cents / 100).toFixed(2)
-  }
-
   function getNextDeliveryDate(dayOfWeek: string) {
-    const dayIndex: Record<string, number> = { sunday:0, monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6 }
-    const target = dayIndex[dayOfWeek]
     const today = new Date()
     const current = today.getDay()
-
     let tueDiff = 2 - current
     if (tueDiff <= 0) tueDiff += 7
-
     const nextTue = new Date(today)
     nextTue.setDate(today.getDate() + tueDiff)
-
     const tuWeekOrder: Record<string, number> = { tuesday:0, wednesday:1, thursday:2, friday:3, saturday:4, sunday:5, monday:6 }
-    const offset = tuWeekOrder[dayOfWeek]
-
     const result = new Date(nextTue)
-    result.setDate(nextTue.getDate() + offset)
+    result.setDate(nextTue.getDate() + tuWeekOrder[dayOfWeek])
     return result
+  }
+
+  function getWeekRange() {
+    const start = getNextDeliveryDate('tuesday')
+    const end = getNextDeliveryDate('monday')
+    const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    return `${fmt(start)}–${fmt(end)}`
   }
 
   function isOrderingOpen() {
@@ -107,15 +122,18 @@ export default function OrderPage() {
     return now < sunday
   }
 
+  function getPrice(product: any) {
+    const cents = customerPrices[product.id] ?? product.price_cents
+    if (!cents) return null
+    return (cents / 100).toFixed(2)
+  }
+
   function updateQuantity(windowId: string, productId: string, value: string) {
     setLines(prev => ({
       ...prev,
       [windowId]: {
         ...prev[windowId],
-        [productId]: {
-          ...prev[windowId][productId],
-          quantity: Math.max(0, parseInt(value) || 0)
-        }
+        [productId]: { ...prev[windowId][productId], quantity: Math.max(0, parseInt(value) || 0) }
       }
     }))
   }
@@ -125,10 +143,7 @@ export default function OrderPage() {
       ...prev,
       [windowId]: {
         ...prev[windowId],
-        [productId]: {
-          ...prev[windowId][productId],
-          sliced: value
-        }
+        [productId]: { ...prev[windowId][productId], sliced: value }
       }
     }))
   }
@@ -140,6 +155,9 @@ export default function OrderPage() {
   function totalItems() {
     return deliveryWindows.reduce((t, w) => t + colTotal(w.id), 0)
   }
+
+  const parProducts = products.filter(p => parProductIds.has(p.id))
+  const otherProducts = products.filter(p => !parProductIds.has(p.id))
 
   async function handleSubmit() {
     if (!customerId) {
@@ -168,6 +186,7 @@ export default function OrderPage() {
           delivery_date: dateStr,
           status: 'pending',
           is_par: false,
+          customer_notes: notes || null,
         })
         .select()
         .single()
@@ -198,21 +217,80 @@ export default function OrderPage() {
       }
     }
 
-    router.push('/order/confirmation')
+    router.push(`/order/confirmation?week=${encodeURIComponent(getWeekRange())}`)
   }
 
   if (loading) return <main style={{ padding: 40 }}>Loading...</main>
 
   const orderingOpen = isOrderingOpen()
+  const weekRange = getWeekRange()
 
   const dayShort: Record<string, string> = {
     monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
     thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun'
   }
 
+  function renderProductRows(productList: any[]) {
+    return productList.map(p => (
+      <tr key={p.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+        <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
+          <div>{p.name}</div>
+          {p.can_be_sliced && (
+            <div style={{ fontSize: 11, color: '#bbb' }}>sliceable</div>
+          )}
+        </td>
+        <td style={{ padding: '6px 16px 6px 0', textAlign: 'right', fontSize: 13, color: '#666' }}>
+          {getPrice(p) ? `$${getPrice(p)}` : '—'}
+        </td>
+        {deliveryWindows.map(w => {
+          const line = lines[w.id]?.[p.id]
+          return (
+            <td key={w.id} style={{ padding: '4px 8px', textAlign: 'center' }}>
+              <input
+                type="number"
+                min="0"
+                value={line?.quantity || 0}
+                onChange={e => updateQuantity(w.id, p.id, e.target.value)}
+                disabled={!orderingOpen}
+                style={{
+                  width: 54,
+                  padding: '4px 6px',
+                  border: '1px solid #ddd',
+                  borderRadius: 4,
+                  textAlign: 'center',
+                  fontSize: 14,
+                  color: '#000',
+                  background: line?.quantity > 0 ? '#f0f7ff' : '#fff',
+                }}
+              />
+              {p.can_be_sliced && line?.quantity > 0 && (
+                <div style={{ fontSize: 11, marginTop: 2 }}>
+                  <label style={{ color: '#666', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={line?.sliced || false}
+                      onChange={e => updateSliced(w.id, p.id, e.target.checked)}
+                      disabled={!orderingOpen}
+                      style={{ marginRight: 3 }}
+                    />
+                    sliced
+                  </label>
+                </div>
+              )}
+            </td>
+          )
+        })}
+      </tr>
+    ))
+  }
+
   return (
     <main style={{ maxWidth: 900, margin: '40px auto', padding: '0 20px' }}>
-      <h1>Place an Order</h1>
+      <h1 style={{ marginBottom: 4 }}>This Week's Order</h1>
+      <p style={{ color: '#888', fontSize: 14, marginBottom: 24 }}>
+        {weekRange} only — changes here won't affect your standing order.
+        Orders close Sunday at noon.
+      </p>
 
       {!orderingOpen && (
         <p style={{
@@ -226,20 +304,12 @@ export default function OrderPage() {
         </p>
       )}
 
-      <p style={{ color: '#666', marginBottom: 24 }}>
-        Enter quantities for each day. Leave empty to skip. Orders close Sunday at noon.
-      </p>
-
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 600 }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #eee' }}>
-              <th style={{ textAlign: 'left', padding: '8px 12px 8px 0', minWidth: 200 }}>
-                Product
-              </th>
-              <th style={{ textAlign: 'right', padding: '8px 16px 8px 0', minWidth: 60, color: '#999', fontWeight: 'normal', fontSize: 13 }}>
-                Price
-              </th>
+              <th style={{ textAlign: 'left', padding: '8px 12px 8px 0', minWidth: 200 }}>Product</th>
+              <th style={{ textAlign: 'right', padding: '8px 16px 8px 0', minWidth: 60, color: '#999', fontWeight: 'normal', fontSize: 13 }}>Price</th>
               {deliveryWindows.map(w => (
                 <th key={w.id} style={{ padding: '8px 8px', textAlign: 'center', minWidth: 80 }}>
                   <div style={{ fontWeight: 600 }}>{dayShort[w.day_of_week]}</div>
@@ -251,54 +321,26 @@ export default function OrderPage() {
             </tr>
           </thead>
           <tbody>
-            {products.map(p => (
-              <tr key={p.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
-                  {p.name}
-                  {p.can_be_sliced && (
-                    <span style={{ fontSize: 11, color: '#bbb', marginLeft: 6 }}>sliceable</span>
-                  )}
-                </td>
-                <td style={{ padding: '6px 16px 6px 0', textAlign: 'right', fontSize: 13, color: '#666' }}>
-                  {getPrice(p) ? `$${getPrice(p)}` : '—'}
-                </td>
-                {deliveryWindows.map(w => (
-                  <td key={w.id} style={{ padding: '4px 8px', textAlign: 'center' }}>
-                    <input
-                      type="number"
-                      min="0"
-                      value={lines[w.id]?.[p.id]?.quantity || 0}
-                      onChange={e => updateQuantity(w.id, p.id, e.target.value)}
-                      disabled={!orderingOpen}
-                      style={{
-                        width: 54,
-                        padding: '4px 6px',
-                        border: '1px solid #ddd',
-                        borderRadius: 4,
-                        textAlign: 'center',
-                        fontSize: 14,
-                        background: lines[w.id]?.[p.id]?.quantity > 0 ? '#f0f7ff' : '#fff',
-                      }}
-                    />
-                    {p.can_be_sliced && lines[w.id]?.[p.id]?.quantity > 0 && (
-                      <div style={{ fontSize: 11, marginTop: 2 }}>
-                        <label style={{ color: '#666', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={lines[w.id]?.[p.id]?.sliced || false}
-                            onChange={e => updateSliced(w.id, p.id, e.target.checked)}
-                            disabled={!orderingOpen}
-                            style={{ marginRight: 3 }}
-                          />
-                          sliced
-                        </label>
-                      </div>
-                    )}
+            {parProducts.length > 0 && (
+              <>
+                {renderProductRows(parProducts)}
+                <tr>
+                  <td
+                    colSpan={2 + deliveryWindows.length}
+                    style={{
+                      padding: '6px 0',
+                      fontSize: 11,
+                      color: '#999',
+                      borderBottom: '1px dashed #ddd',
+                      borderTop: '1px dashed #ddd',
+                    }}
+                  >
+                    Other products
                   </td>
-                ))}
-              </tr>
-            ))}
-
+                </tr>
+              </>
+            )}
+            {renderProductRows(otherProducts)}
             <tr style={{ borderTop: '2px solid #eee', fontWeight: 600 }}>
               <td style={{ padding: '8px 12px 8px 0', fontSize: 13, color: '#666' }}>Total loaves</td>
               <td></td>
@@ -310,6 +352,28 @@ export default function OrderPage() {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div style={{ marginTop: 24 }}>
+        <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: '#444' }}>
+          Notes / special instructions (optional)
+        </label>
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          disabled={!orderingOpen}
+          placeholder="e.g. back door delivery, skip the rye this week..."
+          rows={3}
+          style={{
+            width: '100%',
+            padding: 10,
+            border: '1px solid #ddd',
+            borderRadius: 6,
+            fontSize: 14,
+            color: '#000',
+            resize: 'vertical',
+          }}
+        />
       </div>
 
       {error && <p style={{ color: 'red', margin: '16px 0' }}>{error}</p>}
