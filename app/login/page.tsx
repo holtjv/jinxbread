@@ -7,8 +7,11 @@ import { useRouter } from 'next/navigation'
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -25,6 +28,22 @@ export default function LoginPage() {
     } else {
       router.push('/order')
     }
+  }
+
+  async function handleForgotPassword() {
+    if (!email) {
+      setError('Enter your email address above first.')
+      return
+    }
+    setResetLoading(true)
+    setError(null)
+
+    await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: 'https://jinxbread.vercel.app/reset',
+    })
+
+    setResetLoading(false)
+    setResetSent(true)
   }
 
   return (
@@ -45,15 +64,42 @@ export default function LoginPage() {
           </div>
           <div className="form-field">
             <label className="form-label">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              className="text-input"
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                className="text-input"
+                style={{ paddingRight: 40 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: 'absolute',
+                  right: 10,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#717171',
+                  fontSize: 16,
+                  padding: 0,
+                  lineHeight: 1,
+                }}
+              >
+                {showPassword ? '🙈' : '👁'}
+              </button>
+            </div>
           </div>
           {error && <div className="alert alert-error">{error}</div>}
+          {resetSent && (
+            <div className="alert alert-success">
+              Password reset email sent — check your inbox.
+            </div>
+          )}
           <button
             type="submit"
             disabled={loading}
@@ -63,6 +109,24 @@ export default function LoginPage() {
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
+        <p style={{ marginTop: 16, textAlign: 'center', fontSize: 13, color: '#717171' }}>
+          Forgot your password?{' '}
+          <button
+            onClick={handleForgotPassword}
+            disabled={resetLoading}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--accent)',
+              cursor: 'pointer',
+              fontSize: 13,
+              padding: 0,
+              fontFamily: 'var(--font)',
+            }}
+          >
+            {resetLoading ? 'Sending...' : 'Send reset email'}
+          </button>
+        </p>
       </div>
     </div>
   )
