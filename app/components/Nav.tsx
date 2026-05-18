@@ -14,10 +14,7 @@ export default function Nav() {
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setLoading(false)
-        return
-      }
+      if (!user) { setLoading(false); return }
       const { data: customer } = await supabase
         .from('customers')
         .select('is_admin')
@@ -38,35 +35,26 @@ export default function Nav() {
   if (pathname === '/login') return null
 
   return (
-    <nav style={{
-      display: 'flex',
-      gap: 24,
-      alignItems: 'center',
-      padding: '12px 32px',
-      borderBottom: '1px solid #ccc',
-      marginBottom: 8,
-      background: '#fff',
-      color: '#000',
-    }}>
-      <span style={{ fontWeight: 'bold', marginRight: 8 }}>Jinxbread</span>
-      <a href="/order" style={{ color: '#000', textDecoration: 'none' }}>Order</a>
-      <a href="/par" style={{ color: '#000', textDecoration: 'none' }}>Standing order</a>
-      {isAdmin && (
-        <a href="/admin" style={{ color: '#000', textDecoration: 'none' }}>Admin</a>
-      )}
-      <button
-        onClick={handleLogout}
-        style={{
-          marginLeft: 'auto',
-          background: 'none',
-          border: '1px solid #ccc',
-          borderRadius: 4,
-          padding: '4px 12px',
-          cursor: 'pointer',
-        }}
-      >
-        Sign out
-      </button>
-    </nav>
+    <aside className="sidebar">
+      <div className="sidebar-logo">
+        <img src="/logo.png" alt="Jinxbread" style={{ width: 120, height: 'auto' }} />
+      </div>
+      <nav className="sidebar-nav">
+        <a href="/order" className={pathname === '/order' ? 'active' : ''}>
+          This Week&apos;s Order
+        </a>
+        <a href="/par" className={pathname === '/par' ? 'active' : ''}>
+          Standing Order
+        </a>
+        {isAdmin && (
+          <a href="/admin" className={pathname === '/admin' ? 'active' : ''}>
+            Admin
+          </a>
+        )}
+      </nav>
+      <div className="sidebar-footer">
+        <button onClick={handleLogout}>Sign out</button>
+      </div>
+    </aside>
   )
 }

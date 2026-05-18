@@ -17,10 +17,7 @@ export default function LoginPage() {
     setLoading(true)
     setError(null)
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error) {
       setError(error.message)
@@ -31,55 +28,42 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{
-      maxWidth: 400,
-      margin: '100px auto',
-      padding: 40,
-      color: '#000',
-      background: '#fff',
-      borderRadius: 8,
-    }}>
-      <h1 style={{ marginBottom: 4 }}>Jinxbread</h1>
-      <h2 style={{ marginBottom: 24 }}>Sign in</h2>
-      <form onSubmit={handleLogin}>
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', marginBottom: 4 }}>Email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
-            required
-            style={{ width: '100%', padding: 8, border: '1px solid #ccc', borderRadius: 4, fontSize: 16 }}
-          />
-        </div>
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', marginBottom: 4 }}>Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
-            required
-            style={{ width: '100%', padding: 8, border: '1px solid #ccc', borderRadius: 4, fontSize: 16 }}
-          />
-        </div>
-        {error && <p style={{ color: 'red' }}>{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            width: '100%',
-            padding: 10,
-            background: '#000',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 4,
-            fontSize: 16,
-            cursor: 'pointer',
-          }}
-        >
-          {loading ? 'Signing in...' : 'Sign in'}
-        </button>
-      </form>
-    </main>
+    <div className="login-page">
+      <div className="login-card">
+        <img src="/logo.png" alt="Jinxbread" style={{ width: 100, height: 'auto', marginBottom: 24 }} />
+        <p className="tagline">Wholesale ordering</p>
+        <form onSubmit={handleLogin}>
+          <div className="form-field">
+            <label className="form-label">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              className="text-input"
+            />
+          </div>
+          <div className="form-field">
+            <label className="form-label">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              className="text-input"
+            />
+          </div>
+          {error && <div className="alert alert-error">{error}</div>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn btn-primary"
+            style={{ width: '100%', marginTop: 8 }}
+          >
+            {loading ? 'Signing in...' : 'Sign in'}
+          </button>
+        </form>
+      </div>
+    </div>
   )
 }
