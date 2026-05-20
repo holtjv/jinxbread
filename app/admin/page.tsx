@@ -22,35 +22,55 @@ export default function AdminPage() {
 
   const supabase = createClient()
 
-  // Compute the upcoming week's date range (Tue–Mon)
-  function getUpcomingWeekDates(): { start: Date; end: Date } {
+  // Returns the upcoming delivery week (Tue–Mon) and each day's exact date
+  function getUpcomingWeek() {
     const today = new Date()
-    const day = today.getDay() // 0=Sun, 1=Mon, ..., 6=Sat
+    const day = today.getDay()
     let tueDiff = 2 - day
     if (tueDiff <= 0) tueDiff += 7
-    const start = new Date(today)
-    start.setDate(today.getDate() + tueDiff)
-    start.setHours(0, 0, 0, 0)
-    const end = new Date(start)
-    end.setDate(start.getDate() + 6)
-    end.setHours(23, 59, 59, 999)
-    return { start, end }
+    const tuesday = new Date(today)
+    tuesday.setDate(today.getDate() + tueDiff)
+    tuesday.setHours(0, 0, 0, 0)
+
+    const monday = new Date(tuesday)
+    monday.setDate(tuesday.getDate() + 6)
+    monday.setHours(23, 59, 59, 999)
+
+    // Upcoming Sunday (cutoff day)
+    const sunday = new Date(tuesday)
+    sunday.setDate(tuesday.getDate() - 2)
+
+    return { tuesday, monday, sunday }
   }
 
-  function dateStr(d: Date): string {
-    return d.toISOString().split('T')[0]
+  // Given a delivery window's day_of_week, return its exact date this week
+  function getWindowDate(dayOfWeek: string, tuesday: Date): Date {
+    const offsets: Record<string, number> = {
+      tuesday: 0, wednesday: 1, thursday: 2,
+      friday: 3, saturday: 4, sunday: 5, monday: 6,
+    }
+    const d = new Date(tuesday)
+    d.setDate(tuesday.getDate() + (offsets[dayOfWeek] ?? 0))
+    return d
+  }
+
+  function fmtDate(d: Date, opts?: Intl.DateTimeFormatOptions) {
+    return d.toLocaleDateString('en-US', opts || { month: 'short', day: 'numeric' })
+  }
+
+  function fmtDateFull(d: Date) {
+    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   }
 
   useEffect(() => {
     async function load() {
-      const { start, end } = getUpcomingWeekDates()
-
       const [ordersRes, customersRes, productsRes, cpRes, windowsRes] = await Promise.all([
         supabase
           .from('orders')
           .select(`
             id,
             delivery_date,
+            delivery_window_id,
             status,
             is_par,
             customer_id,
@@ -102,7 +122,6 @@ export default function AdminPage() {
     load()
   }, [])
 
-  // When selected customer changes, populate price inputs
   useEffect(() => {
     if (!selectedCustomerId) return
     const map: Record<string, string> = {}
@@ -114,7 +133,7 @@ export default function AdminPage() {
     setPrices(map)
   }, [selectedCustomerId, customerProducts])
 
-  // ── Orders tab logic ──────────────────────────────────────────
+  // ── Orders tab ────────────────────────────────────────────────
   const dates = [...new Set(orders.map((o: any) => o.delivery_date))].sort()
   const dateOrders = orders.filter((o: any) => o.delivery_date === selectedDate)
 
@@ -123,46 +142,31 @@ export default function AdminPage() {
     order.order_items?.forEach((line: any) => {
       const key = `${line.product.sku}|${line.sliced}`
       if (!totals[key]) {
-        totals[key] = {
-          name: line.product.name,
-          sku: line.product.sku,
-          sliced: line.sliced,
-          quantity: 0,
-        }
+        totals[key] = { name: line.product.name, sku: line.product.sku, sliced: line.sliced, quantity: 0 }
       }
       totals[key].quantity += line.quantity
     })
   })
+  const totalsList = Object.values(totals).sort((a: any, b: any) => a.name.localeCompare(b.name))
 
-  const totalsList = Object.values(totals).sort((a: any, b: any) =>
-    a.name.localeCompare(b.name)
-  )
-
-  // ── This Week tab logic ───────────────────────────────────────
-  const { start: weekStart, end: weekEnd } = getUpcomingWeekDates()
+  // ── This Week tab ─────────────────────────────────────────────
+  const { tuesday, monday, sunday } = getUpcomingWeek()
 
   const thisWeekOrders = orders.filter((o: any) => {
     const d = new Date(o.delivery_date + 'T12:00:00')
-    return d >= weekStart && d <= weekEnd
+    return d >= tuesday && d <= monday
   })
 
-  const dayShort: Record<string, string> = {
-    monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
-    thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun'
-  }
-
-  // Build a map: customer_id -> delivery_window_id -> order
   const weekOrderMap: Record<string, Record<string, any>> = {}
   thisWeekOrders.forEach((o: any) => {
     if (!weekOrderMap[o.customer_id]) weekOrderMap[o.customer_id] = {}
     weekOrderMap[o.customer_id][o.delivery_window_id] = o
   })
 
-  // All customers who have any order this week
   const thisWeekCustomerIds = [...new Set(thisWeekOrders.map((o: any) => o.customer_id))]
   const thisWeekCustomers = customers.filter(c => thisWeekCustomerIds.includes(c.id))
 
-  // ── Pricing tab logic ─────────────────────────────────────────
+  // ── Pricing tab ───────────────────────────────────────────────
   async function handleSavePrices() {
     if (!selectedCustomerId) return
     setSavingPrices(true)
@@ -344,15 +348,14 @@ export default function AdminPage() {
       {tab === 'thisweek' && (
         <>
           <p className="page-subtitle">
-            Current active orders for the week of{' '}
-            {weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}–
-            {weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.
-            Par orders show until a customer updates them.
+            Orders for {fmtDate(tuesday)} – {fmtDate(monday)}.
+            Cutoff is {fmtDateFull(sunday)} at noon.
           </p>
 
           {thisWeekCustomers.length === 0 ? (
             <p style={{ color: 'var(--gray-500)', marginTop: 24 }}>
-              No orders yet for this week. Par orders will appear after Sunday's cron runs.
+              No orders yet for {fmtDate(tuesday)} – {fmtDate(monday)}.
+              Standing orders will auto-submit {fmtDateFull(sunday)} at 1:00pm.
             </p>
           ) : (
             <div style={{ overflowX: 'auto', marginTop: 16 }}>
@@ -360,14 +363,17 @@ export default function AdminPage() {
                 <thead>
                   <tr>
                     <th style={{ minWidth: 160 }}>Customer</th>
-                    {deliveryWindows.map(w => (
-                      <th key={w.id} className="center" style={{ minWidth: 120 }}>
-                        <div>{dayShort[w.day_of_week]}</div>
-                        <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--gray-500)' }}>
-                          {new Date(dateStr(weekStart) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </div>
-                      </th>
-                    ))}
+                    {deliveryWindows.map(w => {
+                      const winDate = getWindowDate(w.day_of_week, tuesday)
+                      return (
+                        <th key={w.id} className="center" style={{ minWidth: 120 }}>
+                          <div>{winDate.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</div>
+                          <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--gray-500)' }}>
+                            {fmtDate(winDate, { month: 'short', day: 'numeric' })}
+                          </div>
+                        </th>
+                      )
+                    })}
                   </tr>
                 </thead>
                 <tbody>
