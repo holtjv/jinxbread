@@ -201,13 +201,15 @@ export default function OrderPage() {
         .filter(([_, line]) => line.quantity > 0)
         .map(([productId, line]) => ({
           order_id: order.id,
+          customer_id: customerId,
           product_id: productId,
+          delivery_window_id: w.id,
           quantity: line.quantity,
           sliced: line.sliced,
         }))
 
       const { error: linesError } = await supabase
-        .from('order_lines')
+        .from('order_items')
         .insert(orderLines)
 
       if (linesError) {
