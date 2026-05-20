@@ -294,26 +294,16 @@ export default function AdminPage() {
           {/* Customer selector */}
           <div style={{ marginBottom: 32 }}>
             <label className="form-label">Customer</label>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <select
+              value={selectedCustomerId || ''}
+              onChange={e => setSelectedCustomerId(e.target.value)}
+              className="text-input"
+              style={{ maxWidth: 320, marginTop: 8 }}
+            >
               {customers.map(c => (
-                <button
-                  key={c.id}
-                  onClick={() => setSelectedCustomerId(c.id)}
-                  style={{
-                    padding: '8px 16px',
-                    background: selectedCustomerId === c.id ? 'var(--accent)' : 'var(--gray-100)',
-                    color: selectedCustomerId === c.id ? '#fff' : 'var(--gray-900)',
-                    border: 'none',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font)',
-                    fontSize: 13,
-                  }}
-                >
-                  {c.name}
-                </button>
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
-            </div>
+            </select>
           </div>
 
           {/* Price table */}
