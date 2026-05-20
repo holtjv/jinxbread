@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/submit-par-orders",
+      "schedule": "0 18 * * 0"
+    },
+    {
+      "path": "/api/cron/notify-par-reminder",
+      "schedule": "0 14 * * 5"
+    }
+  ]
+}
