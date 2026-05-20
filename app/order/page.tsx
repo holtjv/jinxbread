@@ -92,34 +92,48 @@ export default function OrderPage() {
     load()
   }, [])
 
-  function getNextDeliveryDate(dayOfWeek: string) {
+  function getNextDeliveryDate(dayOfWeek: string): Date {
     const today = new Date()
     const current = today.getDay()
     let tueDiff = 2 - current
     if (tueDiff <= 0) tueDiff += 7
     const nextTue = new Date(today)
     nextTue.setDate(today.getDate() + tueDiff)
-    const tuWeekOrder: Record<string, number> = { tuesday:0, wednesday:1, thursday:2, friday:3, saturday:4, sunday:5, monday:6 }
+    const tuWeekOrder: Record<string, number> = {
+      tuesday: 0, wednesday: 1, thursday: 2,
+      friday: 3, saturday: 4, sunday: 5, monday: 6,
+    }
     const result = new Date(nextTue)
     result.setDate(nextTue.getDate() + tuWeekOrder[dayOfWeek])
     return result
   }
 
-  function getWeekRange() {
+  function getUpcomingSunday(): Date {
+    // The Sunday before the delivery week (cutoff day)
+    const tuesday = getNextDeliveryDate('tuesday')
+    const sunday = new Date(tuesday)
+    sunday.setDate(tuesday.getDate() - 2)
+    return sunday
+  }
+
+  function getWeekRange(): string {
     const start = getNextDeliveryDate('tuesday')
     const end = getNextDeliveryDate('monday')
     const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     return `${fmt(start)}–${fmt(end)}`
   }
 
-  function isOrderingOpen() {
+  function getCutoffString(): string {
+    const sunday = getUpcomingSunday()
+    return sunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  }
+
+  function isOrderingOpen(): boolean {
     const now = new Date()
-    const day = now.getDay()
-    const daysUntilSunday = day === 0 ? 7 : 7 - day
-    const sunday = new Date(now)
-    sunday.setDate(now.getDate() + daysUntilSunday)
-    sunday.setHours(12, 0, 0, 0)
-    return now < sunday
+    const sunday = getUpcomingSunday()
+    const cutoff = new Date(sunday)
+    cutoff.setHours(12, 0, 0, 0)
+    return now < cutoff
   }
 
   function getPrice(product: any) {
@@ -178,7 +192,6 @@ export default function OrderPage() {
       const deliveryDate = getNextDeliveryDate(w.day_of_week)
       const dateStr = deliveryDate.toISOString().split('T')[0]
 
-      // Check if a par order already exists for this window + date
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id')
@@ -190,14 +203,8 @@ export default function OrderPage() {
       let orderId: string
 
       if (existingOrder) {
-        // Use existing order, delete its items so we can replace them
         orderId = existingOrder.id
-        await supabase
-          .from('order_items')
-          .delete()
-          .eq('order_id', orderId)
-
-        // Update the order status and notes
+        await supabase.from('order_items').delete().eq('order_id', orderId)
         await supabase
           .from('orders')
           .update({
@@ -208,7 +215,6 @@ export default function OrderPage() {
           })
           .eq('id', orderId)
       } else {
-        // Create a new order
         const { data: order, error: orderError } = await supabase
           .from('orders')
           .insert({
@@ -232,7 +238,6 @@ export default function OrderPage() {
         orderId = order.id
       }
 
-      // Insert order items
       const orderItems = Object.entries(lines[w.id])
         .filter(([_, line]) => line.quantity > 0)
         .map(([productId, line]) => ({
@@ -262,6 +267,7 @@ export default function OrderPage() {
 
   const orderingOpen = isOrderingOpen()
   const weekRange = getWeekRange()
+  const cutoffString = getCutoffString()
 
   const dayShort: Record<string, string> = {
     monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
@@ -326,8 +332,8 @@ export default function OrderPage() {
     <main style={{ maxWidth: 900, margin: '40px auto', padding: '0 20px' }}>
       <h1 style={{ marginBottom: 4 }}>This Week's Order</h1>
       <p style={{ color: '#888', fontSize: 14, marginBottom: 24 }}>
-        {weekRange} only — changes here won't affect your standing order.
-        Orders close Sunday at noon.
+        Deliveries for {weekRange}. Changes here won't affect your standing order.
+        Orders close {cutoffString} at noon.
       </p>
 
       {!orderingOpen && (
@@ -338,7 +344,8 @@ export default function OrderPage() {
           borderRadius: 6,
           marginBottom: 24,
         }}>
-          Orders for this week are closed. Ordering opens Monday and closes Sunday at noon.
+          Orders for {weekRange} are closed — the {cutoffString} noon deadline has passed.
+          Showing the following week below.
         </p>
       )}
 
