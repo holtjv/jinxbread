@@ -178,29 +178,65 @@ export default function OrderPage() {
       const deliveryDate = getNextDeliveryDate(w.day_of_week)
       const dateStr = deliveryDate.toISOString().split('T')[0]
 
-      const { data: order, error: orderError } = await supabase
+      // Check if a par order already exists for this window + date
+      const { data: existingOrder } = await supabase
         .from('orders')
-        .insert({
-          customer_id: customerId,
-          delivery_window_id: w.id,
-          delivery_date: dateStr,
-          status: 'pending',
-          is_par: false,
-          customer_notes: notes || null,
-        })
-        .select()
-        .single()
+        .select('id')
+        .eq('customer_id', customerId)
+        .eq('delivery_window_id', w.id)
+        .eq('delivery_date', dateStr)
+        .maybeSingle()
 
-      if (orderError) {
-        setError(orderError.message)
-        setSubmitting(false)
-        return
+      let orderId: string
+
+      if (existingOrder) {
+        // Use existing order, delete its items so we can replace them
+        orderId = existingOrder.id
+        await supabase
+          .from('order_items')
+          .delete()
+          .eq('order_id', orderId)
+
+        // Update the order status and notes
+        await supabase
+          .from('orders')
+          .update({
+            status: 'pending',
+            is_par: false,
+            customer_notes: notes || null,
+            submitted_at: new Date().toISOString(),
+          })
+          .eq('id', orderId)
+      } else {
+        // Create a new order
+        const { data: order, error: orderError } = await supabase
+          .from('orders')
+          .insert({
+            customer_id: customerId,
+            delivery_window_id: w.id,
+            delivery_date: dateStr,
+            status: 'pending',
+            is_par: false,
+            customer_notes: notes || null,
+            submitted_at: new Date().toISOString(),
+          })
+          .select()
+          .single()
+
+        if (orderError || !order) {
+          setError(orderError?.message || 'Error creating order')
+          setSubmitting(false)
+          return
+        }
+
+        orderId = order.id
       }
 
-      const orderLines = Object.entries(lines[w.id])
+      // Insert order items
+      const orderItems = Object.entries(lines[w.id])
         .filter(([_, line]) => line.quantity > 0)
         .map(([productId, line]) => ({
-          order_id: order.id,
+          order_id: orderId,
           customer_id: customerId,
           product_id: productId,
           delivery_window_id: w.id,
@@ -208,12 +244,12 @@ export default function OrderPage() {
           sliced: line.sliced,
         }))
 
-      const { error: linesError } = await supabase
+      const { error: itemsError } = await supabase
         .from('order_items')
-        .insert(orderLines)
+        .insert(orderItems)
 
-      if (linesError) {
-        setError(linesError.message)
+      if (itemsError) {
+        setError(itemsError.message)
         setSubmitting(false)
         return
       }
