@@ -3,13 +3,14 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
 
-type Tab = 'orders' | 'pricing'
+type Tab = 'orders' | 'thisweek' | 'pricing'
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('orders')
   const [orders, setOrders] = useState<any[]>([])
   const [customers, setCustomers] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
+  const [deliveryWindows, setDeliveryWindows] = useState<any[]>([])
   const [customerProducts, setCustomerProducts] = useState<any[]>([])
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
   const [prices, setPrices] = useState<Record<string, string>>({})
@@ -21,9 +22,30 @@ export default function AdminPage() {
 
   const supabase = createClient()
 
+  // Compute the upcoming week's date range (Tue–Mon)
+  function getUpcomingWeekDates(): { start: Date; end: Date } {
+    const today = new Date()
+    const day = today.getDay() // 0=Sun, 1=Mon, ..., 6=Sat
+    let tueDiff = 2 - day
+    if (tueDiff <= 0) tueDiff += 7
+    const start = new Date(today)
+    start.setDate(today.getDate() + tueDiff)
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(start)
+    end.setDate(start.getDate() + 6)
+    end.setHours(23, 59, 59, 999)
+    return { start, end }
+  }
+
+  function dateStr(d: Date): string {
+    return d.toISOString().split('T')[0]
+  }
+
   useEffect(() => {
     async function load() {
-      const [ordersRes, customersRes, productsRes, cpRes] = await Promise.all([
+      const { start, end } = getUpcomingWeekDates()
+
+      const [ordersRes, customersRes, productsRes, cpRes, windowsRes] = await Promise.all([
         supabase
           .from('orders')
           .select(`
@@ -31,10 +53,12 @@ export default function AdminPage() {
             delivery_date,
             status,
             is_par,
-            customer:customers (name, type),
+            customer_id,
+            customer:customers (id, name, type),
             order_items (
               quantity,
               sliced,
+              product_id,
               product:products (name, sku)
             )
           `)
@@ -52,6 +76,11 @@ export default function AdminPage() {
         supabase
           .from('customer_products')
           .select('customer_id, product_id, price_cents'),
+        supabase
+          .from('delivery_windows')
+          .select('*')
+          .eq('active', true)
+          .order('sort_order'),
       ])
 
       if (ordersRes.data) {
@@ -66,6 +95,7 @@ export default function AdminPage() {
       }
       if (productsRes.data) setProducts(productsRes.data)
       if (cpRes.data) setCustomerProducts(cpRes.data)
+      if (windowsRes.data) setDeliveryWindows(windowsRes.data)
 
       setLoading(false)
     }
@@ -108,6 +138,30 @@ export default function AdminPage() {
     a.name.localeCompare(b.name)
   )
 
+  // ── This Week tab logic ───────────────────────────────────────
+  const { start: weekStart, end: weekEnd } = getUpcomingWeekDates()
+
+  const thisWeekOrders = orders.filter((o: any) => {
+    const d = new Date(o.delivery_date + 'T12:00:00')
+    return d >= weekStart && d <= weekEnd
+  })
+
+  const dayShort: Record<string, string> = {
+    monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
+    thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun'
+  }
+
+  // Build a map: customer_id -> delivery_window_id -> order
+  const weekOrderMap: Record<string, Record<string, any>> = {}
+  thisWeekOrders.forEach((o: any) => {
+    if (!weekOrderMap[o.customer_id]) weekOrderMap[o.customer_id] = {}
+    weekOrderMap[o.customer_id][o.delivery_window_id] = o
+  })
+
+  // All customers who have any order this week
+  const thisWeekCustomerIds = [...new Set(thisWeekOrders.map((o: any) => o.customer_id))]
+  const thisWeekCustomers = customers.filter(c => thisWeekCustomerIds.includes(c.id))
+
   // ── Pricing tab logic ─────────────────────────────────────────
   async function handleSavePrices() {
     if (!selectedCustomerId) return
@@ -115,7 +169,6 @@ export default function AdminPage() {
     setPriceSaved(false)
     setPriceError(null)
 
-    // Delete existing custom prices for this customer
     const { error: deleteError } = await supabase
       .from('customer_products')
       .delete()
@@ -127,7 +180,6 @@ export default function AdminPage() {
       return
     }
 
-    // Insert rows where a custom price was entered
     const rows = Object.entries(prices)
       .filter(([_, val]) => val !== '' && !isNaN(parseFloat(val)) && parseFloat(val) > 0)
       .map(([productId, val]) => ({
@@ -148,7 +200,6 @@ export default function AdminPage() {
       }
     }
 
-    // Update local state
     setCustomerProducts(prev => [
       ...prev.filter(cp => cp.customer_id !== selectedCustomerId),
       ...rows,
@@ -161,13 +212,19 @@ export default function AdminPage() {
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
+  const tabLabels: Record<Tab, string> = {
+    orders: 'Orders',
+    thisweek: 'This Week',
+    pricing: 'Customer Pricing',
+  }
+
   return (
     <div>
       <h1>Admin</h1>
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 32, borderBottom: '2px solid var(--gray-200)' }}>
-        {(['orders', 'pricing'] as Tab[]).map(t => (
+        {(['orders', 'thisweek', 'pricing'] as Tab[]).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -182,10 +239,9 @@ export default function AdminPage() {
               fontSize: 14,
               fontWeight: tab === t ? 600 : 400,
               color: tab === t ? 'var(--accent)' : 'var(--gray-500)',
-              textTransform: 'capitalize',
             }}
           >
-            {t === 'orders' ? 'Orders' : 'Customer Pricing'}
+            {tabLabels[t]}
           </button>
         ))}
       </div>
@@ -284,6 +340,76 @@ export default function AdminPage() {
         </>
       )}
 
+      {/* ── THIS WEEK TAB ── */}
+      {tab === 'thisweek' && (
+        <>
+          <p className="page-subtitle">
+            Current active orders for the week of{' '}
+            {weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}–
+            {weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.
+            Par orders show until a customer updates them.
+          </p>
+
+          {thisWeekCustomers.length === 0 ? (
+            <p style={{ color: 'var(--gray-500)', marginTop: 24 }}>
+              No orders yet for this week. Par orders will appear after Sunday's cron runs.
+            </p>
+          ) : (
+            <div style={{ overflowX: 'auto', marginTop: 16 }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: 160 }}>Customer</th>
+                    {deliveryWindows.map(w => (
+                      <th key={w.id} className="center" style={{ minWidth: 120 }}>
+                        <div>{dayShort[w.day_of_week]}</div>
+                        <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--gray-500)' }}>
+                          {new Date(dateStr(weekStart) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {thisWeekCustomers.map(c => (
+                    <tr key={c.id}>
+                      <td style={{ fontWeight: 500 }}>{c.name}</td>
+                      {deliveryWindows.map(w => {
+                        const order = weekOrderMap[c.id]?.[w.id]
+                        if (!order) {
+                          return (
+                            <td key={w.id} className="center" style={{ color: 'var(--gray-300)' }}>
+                              —
+                            </td>
+                          )
+                        }
+                        const total = order.order_items?.reduce((sum: number, item: any) => sum + item.quantity, 0) || 0
+                        return (
+                          <td key={w.id} className="center">
+                            <div style={{ fontWeight: 600 }}>{total} loaves</div>
+                            <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 2 }}>
+                              {order.is_par ? 'par' : 'manual'}
+                            </div>
+                            <div style={{ marginTop: 6 }}>
+                              {order.order_items?.map((item: any, i: number) => (
+                                <div key={i} style={{ fontSize: 11, color: 'var(--gray-600)', lineHeight: 1.4 }}>
+                                  {item.quantity}× {item.product.sku}
+                                  {item.sliced ? ' (sl)' : ''}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
       {/* ── PRICING TAB ── */}
       {tab === 'pricing' && (
         <div style={{ maxWidth: 640 }}>
@@ -291,7 +417,6 @@ export default function AdminPage() {
             Set custom prices per customer. Leave blank to use the default product price.
           </p>
 
-          {/* Customer selector */}
           <div style={{ marginBottom: 32 }}>
             <label className="form-label">Customer</label>
             <select
@@ -306,7 +431,6 @@ export default function AdminPage() {
             </select>
           </div>
 
-          {/* Price table */}
           {selectedCustomerId && (
             <>
               <table className="data-table" style={{ marginBottom: 24 }}>
