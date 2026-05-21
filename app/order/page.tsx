@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClient } from '../../../lib/supabase'
-
+import { createClient } from '../../lib/supabase'
 export default function OrderPage() {
   const [products, setProducts] = useState<any[]>([])
   const [parProductIds, setParProductIds] = useState<Set<string>>(new Set())
