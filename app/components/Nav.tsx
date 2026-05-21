@@ -41,13 +41,16 @@ export default function Nav() {
       </div>
       <nav className="sidebar-nav">
         <a href="/order" className={pathname === '/order' ? 'active' : ''}>
-          This Week&apos;s Order
+          Place an Order
+        </a>
+        <a href="/my-orders" className={pathname === '/my-orders' ? 'active' : ''}>
+          My Orders
         </a>
         <a href="/par" className={pathname === '/par' ? 'active' : ''}>
           Standing Order
         </a>
         {isAdmin && (
-          <a href="/admin" className={pathname === '/admin' ? 'active' : ''}>
+          <a href="/admin" className={pathname.startsWith('/admin') ? 'active' : ''}>
             Admin
           </a>
         )}
