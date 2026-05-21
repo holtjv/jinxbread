@@ -2,17 +2,20 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
+
 export default function OrderPage() {
   const [products, setProducts] = useState<any[]>([])
-  const [parProductIds, setParProductIds] = useState<Set<string>>(new Set())
   const [deliveryWindows, setDeliveryWindows] = useState<any[]>([])
   const [customerPrices, setCustomerPrices] = useState<Record<string, number>>({})
-  const [lines, setLines] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
+  const [parQtyMap, setParQtyMap] = useState<Record<string, Record<string, number>>>({})
+  const [parSlicedMap, setParSlicedMap] = useState<Record<string, Record<string, boolean>>>({})
+  const [additions, setAdditions] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
   const [notes, setNotes] = useState('')
   const [customerId, setCustomerId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [step, setStep] = useState<'order' | 'confirm'>('order')
   const supabase = createClient()
 
   // ── Date helpers ──────────────────────────────────────────────
@@ -67,72 +70,52 @@ export default function OrderPage() {
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
-      let parQtyMap: Record<string, Record<string, number>> = {}
-      let parIds = new Set<string>()
+      const { data: customer } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('email', user.email)
+        .single()
 
-      if (user) {
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('id')
-          .eq('email', user.email)
-          .single()
+      if (!customer) return
+      setCustomerId(customer.id)
 
-        if (customer) {
-          setCustomerId(customer.id)
+      const [pricesRes, parsRes, prodsRes, windowsRes] = await Promise.all([
+        supabase.from('customer_products').select('product_id, price_cents').eq('customer_id', customer.id),
+        supabase.from('customer_pars').select('product_id, delivery_window_id, quantity, sliced').eq('customer_id', customer.id),
+        supabase.from('products').select('*').eq('active', true).order('sort_order'),
+        supabase.from('delivery_windows').select('*').eq('active', true).order('sort_order'),
+      ])
 
-          const { data: prices } = await supabase
-            .from('customer_products')
-            .select('product_id, price_cents')
-            .eq('customer_id', customer.id)
+      const priceMap: Record<string, number> = {}
+      pricesRes.data?.forEach((p: any) => { priceMap[p.product_id] = p.price_cents })
+      setCustomerPrices(priceMap)
 
-          const priceMap: Record<string, number> = {}
-          prices?.forEach((p: any) => { priceMap[p.product_id] = p.price_cents })
-          setCustomerPrices(priceMap)
+      const pqMap: Record<string, Record<string, number>> = {}
+      const psMap: Record<string, Record<string, boolean>> = {}
+      parsRes.data?.forEach((p: any) => {
+        if (!pqMap[p.delivery_window_id]) pqMap[p.delivery_window_id] = {}
+        if (!psMap[p.delivery_window_id]) psMap[p.delivery_window_id] = {}
+        pqMap[p.delivery_window_id][p.product_id] = p.quantity
+        psMap[p.delivery_window_id][p.product_id] = p.sliced
+      })
+      setParQtyMap(pqMap)
+      setParSlicedMap(psMap)
 
-          const { data: pars } = await supabase
-            .from('customer_pars')
-            .select('product_id, delivery_window_id, quantity')
-            .eq('customer_id', customer.id)
-
-          parIds = new Set<string>(pars?.map((p: any) => p.product_id) || [])
-          pars?.forEach((p: any) => {
-            if (!parQtyMap[p.delivery_window_id]) parQtyMap[p.delivery_window_id] = {}
-            parQtyMap[p.delivery_window_id][p.product_id] = p.quantity
-          })
-          setParProductIds(parIds)
-        }
-      }
-
-      const { data: prods } = await supabase
-        .from('products')
-        .select('*')
-        .eq('active', true)
-        .order('sort_order')
-
-      const { data: windows } = await supabase
-        .from('delivery_windows')
-        .select('*')
-        .eq('active', true)
-        .order('sort_order')
-
-      const sortedWindows = (windows || []).sort((a: any, b: any) => a.sort_order - b.sort_order)
-
-      setProducts(prods || [])
+      const sortedWindows = (windowsRes.data || []).sort((a: any, b: any) => a.sort_order - b.sort_order)
+      setProducts(prodsRes.data || [])
       setDeliveryWindows(sortedWindows)
 
-      const initial: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
+      // Init additions at 0 for all products/windows
+      const initAdditions: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
       sortedWindows.forEach((w: any) => {
-        initial[w.id] = {}
-        prods?.forEach((p: any) => {
-          initial[w.id][p.id] = {
-            quantity: parQtyMap[w.id]?.[p.id] || 0,
-            sliced: false,
-          }
+        initAdditions[w.id] = {}
+        prodsRes.data?.forEach((p: any) => {
+          initAdditions[w.id][p.id] = { quantity: 0, sliced: false }
         })
       })
-
-      setLines(initial)
+      setAdditions(initAdditions)
       setLoading(false)
     }
     load()
@@ -144,51 +127,74 @@ export default function OrderPage() {
     return (cents / 100).toFixed(2)
   }
 
-  function updateQuantity(windowId: string, productId: string, value: string) {
-    setLines(prev => ({
+  function updateAddition(windowId: string, productId: string, field: 'quantity' | 'sliced', value: any) {
+    setAdditions(prev => ({
       ...prev,
       [windowId]: {
         ...prev[windowId],
-        [productId]: { ...prev[windowId][productId], quantity: Math.max(0, parseInt(value) || 0) }
+        [productId]: {
+          ...prev[windowId][productId],
+          [field]: field === 'quantity' ? Math.max(0, parseInt(value) || 0) : value,
+        }
       }
     }))
   }
 
-  function updateSliced(windowId: string, productId: string, value: boolean) {
-    setLines(prev => ({
-      ...prev,
-      [windowId]: {
-        ...prev[windowId],
-        [productId]: { ...prev[windowId][productId], sliced: value }
-      }
-    }))
+  // Merged quantity = par + additions for a given window/product
+  function mergedQty(windowId: string, productId: string): number {
+    return (parQtyMap[windowId]?.[productId] || 0) + (additions[windowId]?.[productId]?.quantity || 0)
   }
 
-  function colTotal(windowId: string) {
-    return Object.values(lines[windowId] || {}).reduce((t, l) => t + (l.quantity || 0), 0)
+  // Merged sliced = par sliced OR additions sliced
+  function mergedSliced(windowId: string, productId: string): boolean {
+    return (parSlicedMap[windowId]?.[productId] || false) || (additions[windowId]?.[productId]?.sliced || false)
   }
 
-  function totalItems() {
-    return deliveryWindows.reduce((t, w) => t + colTotal(w.id), 0)
+  function hasAnyAdditions(): boolean {
+    return deliveryWindows.some(w =>
+      products.some(p => (additions[w.id]?.[p.id]?.quantity || 0) > 0)
+    )
   }
 
-  const parProducts = products.filter(p => parProductIds.has(p.id))
-  const otherProducts = products.filter(p => !parProductIds.has(p.id))
+  function hasAnyPar(): boolean {
+    return Object.values(parQtyMap).some(w => Object.values(w).some(q => q > 0))
+  }
+
+  function colParTotal(windowId: string): number {
+    return Object.values(parQtyMap[windowId] || {}).reduce((t, q) => t + q, 0)
+  }
+
+  function colAddTotal(windowId: string): number {
+    return Object.values(additions[windowId] || {}).reduce((t, l) => t + (l.quantity || 0), 0)
+  }
+
+  function colMergedTotal(windowId: string): number {
+    return colParTotal(windowId) + colAddTotal(windowId)
+  }
+
+  function totalMergedItems(): number {
+    return deliveryWindows.reduce((t, w) => t + colMergedTotal(w.id), 0)
+  }
+
+  // Products that appear in the merged order (par or additions > 0)
+  function mergedOrderLines(windowId: string) {
+    return products.filter(p => mergedQty(windowId, p.id) > 0)
+  }
 
   async function handleSubmit() {
     if (!customerId) {
       setError('No customer account found. Please contact the bakery.')
       return
     }
-    if (totalItems() === 0) {
-      setError('Please add at least one item before submitting.')
+    if (totalMergedItems() === 0) {
+      setError('No items in your order.')
       return
     }
 
     setSubmitting(true)
     setError(null)
 
-    const windowsWithItems = deliveryWindows.filter(w => colTotal(w.id) > 0)
+    const windowsWithItems = deliveryWindows.filter(w => colMergedTotal(w.id) > 0)
 
     for (const w of windowsWithItems) {
       const deliveryDate = getDeliveryDate(w.day_of_week)
@@ -207,15 +213,12 @@ export default function OrderPage() {
       if (existingOrder) {
         orderId = existingOrder.id
         await supabase.from('order_items').delete().eq('order_id', orderId)
-        await supabase
-          .from('orders')
-          .update({
-            status: 'pending',
-            is_par: false,
-            customer_notes: notes || null,
-            submitted_at: new Date().toISOString(),
-          })
-          .eq('id', orderId)
+        await supabase.from('orders').update({
+          status: 'pending',
+          is_par: false,
+          customer_notes: notes || null,
+          submitted_at: new Date().toISOString(),
+        }).eq('id', orderId)
       } else {
         const { data: order, error: orderError } = await supabase
           .from('orders')
@@ -236,19 +239,19 @@ export default function OrderPage() {
           setSubmitting(false)
           return
         }
-
         orderId = order.id
       }
 
-      const orderItems = Object.entries(lines[w.id])
-        .filter(([_, line]) => line.quantity > 0)
-        .map(([productId, line]) => ({
+      // Insert merged quantities
+      const orderItems = products
+        .filter(p => mergedQty(w.id, p.id) > 0)
+        .map(p => ({
           order_id: orderId,
           customer_id: customerId,
-          product_id: productId,
+          product_id: p.id,
           delivery_window_id: w.id,
-          quantity: line.quantity,
-          sliced: line.sliced,
+          quantity: mergedQty(w.id, p.id),
+          sliced: mergedSliced(w.id, p.id),
         }))
 
       const { error: itemsError } = await supabase
@@ -265,7 +268,7 @@ export default function OrderPage() {
     window.location.href = `/order/confirmation?week=${encodeURIComponent(getWeekRange())}`
   }
 
-  if (loading) return <main style={{ padding: 40 }}>Loading...</main>
+  if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
   const pastCutoff = isPastCutoff()
   const weekRange = getWeekRange()
@@ -276,63 +279,93 @@ export default function OrderPage() {
     thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun'
   }
 
-  function renderProductRows(productList: any[]) {
-    return productList.map(p => (
-      <tr key={p.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
-        <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
-          <div>{p.name}</div>
-          {p.can_be_sliced && (
-            <div style={{ fontSize: 11, color: '#bbb' }}>sliceable</div>
-          )}
-        </td>
-        <td style={{ padding: '6px 16px 6px 0', textAlign: 'right', fontSize: 13, color: '#666' }}>
-          {getPrice(p) ? `$${getPrice(p)}` : '—'}
-        </td>
-        {deliveryWindows.map(w => {
-          const line = lines[w.id]?.[p.id]
-          return (
-            <td key={w.id} style={{ padding: '4px 8px', textAlign: 'center' }}>
-              <input
-                type="number"
-                min="0"
-                value={line?.quantity || 0}
-                onChange={e => updateQuantity(w.id, p.id, e.target.value)}
-                style={{
-                  width: 54,
-                  padding: '4px 6px',
-                  border: '1px solid #ddd',
-                  borderRadius: 4,
-                  textAlign: 'center',
-                  fontSize: 14,
-                  color: '#000',
-                  background: line?.quantity > 0 ? '#f0f7ff' : '#fff',
-                }}
-              />
-              {p.can_be_sliced && line?.quantity > 0 && (
-                <div style={{ fontSize: 11, marginTop: 2 }}>
-                  <label style={{ color: '#666', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={line?.sliced || false}
-                      onChange={e => updateSliced(w.id, p.id, e.target.checked)}
-                      style={{ marginRight: 3 }}
-                    />
-                    sliced
-                  </label>
-                </div>
-              )}
-            </td>
-          )
-        })}
-      </tr>
-    ))
+  // ── CONFIRM STEP ──────────────────────────────────────────────
+  if (step === 'confirm') {
+    return (
+      <div>
+        <h1 style={{ marginBottom: 4 }}>Confirm your order</h1>
+        <p className="page-subtitle">
+          Review your order for {weekRange} before submitting.
+          {hasAnyPar() && ' Standing order quantities are included.'}
+        </p>
+
+        {deliveryWindows.filter(w => colMergedTotal(w.id) > 0).map(w => (
+          <div key={w.id} style={{ marginBottom: 32 }}>
+            <h2 style={{ fontSize: 15, marginBottom: 8 }}>
+              {dayShort[w.day_of_week]}, {getDeliveryDate(w.day_of_week).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+            </h2>
+            <table className="data-table" style={{ marginBottom: 0 }}>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th className="center">Standing</th>
+                  <th className="center">Additional</th>
+                  <th className="center">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mergedOrderLines(w.id).map(p => (
+                  <tr key={p.id}>
+                    <td>
+                      <div>{p.name}</div>
+                      {mergedSliced(w.id, p.id) && <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>sliced</div>}
+                    </td>
+                    <td className="center" style={{ color: 'var(--gray-500)' }}>
+                      {parQtyMap[w.id]?.[p.id] || '—'}
+                    </td>
+                    <td className="center" style={{ color: 'var(--gray-500)' }}>
+                      {additions[w.id]?.[p.id]?.quantity || '—'}
+                    </td>
+                    <td className="center" style={{ fontWeight: 600 }}>
+                      {mergedQty(w.id, p.id)}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="totals-row">
+                  <td>Total</td>
+                  <td className="center">{colParTotal(w.id) || '—'}</td>
+                  <td className="center">{colAddTotal(w.id) || '—'}</td>
+                  <td className="center">{colMergedTotal(w.id)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ))}
+
+        {notes && (
+          <p style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 24 }}>
+            Notes: {notes}
+          </p>
+        )}
+
+        {error && <p style={{ color: 'red', marginBottom: 16 }}>{error}</p>}
+
+        <div style={{ display: 'flex', gap: 12, marginBottom: 60 }}>
+          <button
+            onClick={() => setStep('order')}
+            className="btn"
+            style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}
+          >
+            ← Edit order
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="btn btn-primary"
+          >
+            {submitting ? 'Submitting...' : `Submit order (${totalMergedItems()} loaves)`}
+          </button>
+        </div>
+      </div>
+    )
   }
 
+  // ── ORDER STEP ────────────────────────────────────────────────
   return (
-    <main style={{ maxWidth: 900, margin: '40px auto', padding: '0 20px' }}>
+    <div>
       <h1 style={{ marginBottom: 4 }}>Place an Order</h1>
-      <p style={{ color: '#888', fontSize: 14, marginBottom: 24 }}>
-        Deliveries for {weekRange}. Changes here won't affect your standing order.
+      <p className="page-subtitle">
+        Deliveries for {weekRange}.
         {!pastCutoff && ` Orders close ${cutoffString} at noon.`}
       </p>
 
@@ -353,6 +386,73 @@ export default function OrderPage() {
         </div>
       )}
 
+      {/* Standing Order summary */}
+      <div style={{
+        background: 'var(--gray-50)',
+        border: '1px solid var(--gray-200)',
+        borderRadius: 8,
+        padding: 16,
+        marginBottom: 32,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: hasAnyPar() ? 12 : 0 }}>
+          <h2 style={{ fontSize: 15, margin: 0 }}>Standing Order</h2>
+          <a href="/par" style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 500 }}>
+            Edit standing order →
+          </a>
+        </div>
+
+        {!hasAnyPar() ? (
+          <p style={{ color: 'var(--gray-500)', fontSize: 13, margin: 0 }}>
+            No standing order set.{' '}
+            <a href="/par" style={{ color: 'var(--accent)' }}>Set one up →</a>
+          </p>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--gray-500)', fontWeight: 500, padding: '4px 0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Product</th>
+                {deliveryWindows.map(w => (
+                  <th key={w.id} style={{ textAlign: 'center', fontSize: 11, color: 'var(--gray-500)', fontWeight: 500, padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {dayShort[w.day_of_week]}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {products.filter(p => deliveryWindows.some(w => (parQtyMap[w.id]?.[p.id] || 0) > 0)).map(p => (
+                <tr key={p.id} style={{ borderTop: '1px solid var(--gray-100)' }}>
+                  <td style={{ padding: '6px 0', fontSize: 13 }}>
+                    {p.name}
+                    {deliveryWindows.some(w => parSlicedMap[w.id]?.[p.id]) && (
+                      <span style={{ fontSize: 11, color: 'var(--gray-400)', marginLeft: 6 }}>sliced</span>
+                    )}
+                  </td>
+                  {deliveryWindows.map(w => (
+                    <td key={w.id} style={{ textAlign: 'center', padding: '6px 8px', fontSize: 13 }}>
+                      {parQtyMap[w.id]?.[p.id] || '—'}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              <tr style={{ borderTop: '2px solid var(--gray-200)' }}>
+                <td style={{ padding: '6px 0', fontSize: 12, color: 'var(--gray-500)', fontWeight: 600 }}>Total</td>
+                {deliveryWindows.map(w => (
+                  <td key={w.id} style={{ textAlign: 'center', padding: '6px 8px', fontSize: 12, fontWeight: 600, color: 'var(--gray-500)' }}>
+                    {colParTotal(w.id) || '—'}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Additional items */}
+      <h2 style={{ fontSize: 15, marginBottom: 8 }}>Additional items this week</h2>
+      <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 16 }}>
+        Add extra loaves on top of your standing order. Changes here won't affect your standing order.
+      </p>
+
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 600 }}>
           <thead>
@@ -360,7 +460,7 @@ export default function OrderPage() {
               <th style={{ textAlign: 'left', padding: '8px 12px 8px 0', minWidth: 200 }}>Product</th>
               <th style={{ textAlign: 'right', padding: '8px 16px 8px 0', minWidth: 60, color: '#999', fontWeight: 'normal', fontSize: 13 }}>Price</th>
               {deliveryWindows.map(w => (
-                <th key={w.id} style={{ padding: '8px 8px', textAlign: 'center', minWidth: 80 }}>
+                <th key={w.id} style={{ padding: '8px', textAlign: 'center', minWidth: 80 }}>
                   <div style={{ fontWeight: 600 }}>{dayShort[w.day_of_week]}</div>
                   <div style={{ fontSize: 11, color: '#999', fontWeight: 'normal' }}>
                     {getDeliveryDate(w.day_of_week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -370,32 +470,59 @@ export default function OrderPage() {
             </tr>
           </thead>
           <tbody>
-            {parProducts.length > 0 && (
-              <>
-                {renderProductRows(parProducts)}
-                <tr>
-                  <td
-                    colSpan={2 + deliveryWindows.length}
-                    style={{
-                      padding: '6px 0',
-                      fontSize: 11,
-                      color: '#999',
-                      borderBottom: '1px dashed #ddd',
-                      borderTop: '1px dashed #ddd',
-                    }}
-                  >
-                    Other products
-                  </td>
-                </tr>
-              </>
-            )}
-            {renderProductRows(otherProducts)}
+            {products.map(p => (
+              <tr key={p.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
+                  <div>{p.name}</div>
+                  {p.can_be_sliced && <div style={{ fontSize: 11, color: '#bbb' }}>sliceable</div>}
+                </td>
+                <td style={{ padding: '6px 16px 6px 0', textAlign: 'right', fontSize: 13, color: '#666' }}>
+                  {getPrice(p) ? `$${getPrice(p)}` : '—'}
+                </td>
+                {deliveryWindows.map(w => {
+                  const add = additions[w.id]?.[p.id]
+                  return (
+                    <td key={w.id} style={{ padding: '4px 8px', textAlign: 'center' }}>
+                      <input
+                        type="number"
+                        min="0"
+                        value={add?.quantity || 0}
+                        onChange={e => updateAddition(w.id, p.id, 'quantity', e.target.value)}
+                        style={{
+                          width: 54,
+                          padding: '4px 6px',
+                          border: '1px solid #ddd',
+                          borderRadius: 4,
+                          textAlign: 'center',
+                          fontSize: 14,
+                          color: '#000',
+                          background: (add?.quantity || 0) > 0 ? '#f0f7ff' : '#fff',
+                        }}
+                      />
+                      {p.can_be_sliced && (add?.quantity || 0) > 0 && (
+                        <div style={{ fontSize: 11, marginTop: 2 }}>
+                          <label style={{ color: '#666', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={add?.sliced || false}
+                              onChange={e => updateAddition(w.id, p.id, 'sliced', e.target.checked)}
+                              style={{ marginRight: 3 }}
+                            />
+                            sliced
+                          </label>
+                        </div>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
             <tr style={{ borderTop: '2px solid #eee', fontWeight: 600 }}>
-              <td style={{ padding: '8px 12px 8px 0', fontSize: 13, color: '#666' }}>Total loaves</td>
+              <td style={{ padding: '8px 12px 8px 0', fontSize: 13, color: '#666' }}>Additional total</td>
               <td></td>
               {deliveryWindows.map(w => (
                 <td key={w.id} style={{ padding: '8px', textAlign: 'center', fontSize: 14 }}>
-                  {colTotal(w.id) > 0 ? colTotal(w.id) : '—'}
+                  {colAddTotal(w.id) > 0 ? colAddTotal(w.id) : '—'}
                 </td>
               ))}
             </tr>
@@ -428,13 +555,19 @@ export default function OrderPage() {
 
       <div style={{ marginTop: 24, marginBottom: 60 }}>
         <button
-          onClick={handleSubmit}
-          disabled={submitting}
+          onClick={() => {
+            if (totalMergedItems() === 0) {
+              setError('Please add at least one item before continuing.')
+              return
+            }
+            setError(null)
+            setStep('confirm')
+          }}
           className="btn btn-primary"
         >
-          {submitting ? 'Submitting...' : `Submit order for ${weekRange} (${totalItems()} loaves)`}
+          Review order ({totalMergedItems()} loaves) →
         </button>
       </div>
-    </main>
+    </div>
   )
 }
