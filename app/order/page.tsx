@@ -2,8 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
-import { useRouter } from 'next/navigation'
-
 export default function OrderPage() {
   const [products, setProducts] = useState<any[]>([])
   const [parProductIds, setParProductIds] = useState<Set<string>>(new Set())
@@ -15,7 +13,6 @@ export default function OrderPage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
@@ -260,8 +257,7 @@ export default function OrderPage() {
       }
     }
 
-    router.push(`/order/confirmation?week=${encodeURIComponent(getWeekRange())}`)
-  }
+   window.location.href = `/order/confirmation?week=${encodeURIComponent(getWeekRange())}`
 
   if (loading) return <main style={{ padding: 40 }}>Loading...</main>
 
