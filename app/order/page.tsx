@@ -200,13 +200,17 @@ export default function OrderPage() {
       const deliveryDate = getDeliveryDate(w.day_of_week)
       const dateStr = deliveryDate.toISOString().split('T')[0]
 
-      const { data: existingOrder } = await supabase
-        .from('orders')
-        .select('id')
-        .eq('customer_id', customerId)
-        .eq('delivery_window_id', w.id)
-        .eq('delivery_date', dateStr)
-        .maybeSingle()
+     const weekStart = getOrderableTuesday().toISOString().split('T')[0]
+const weekEnd = getDeliveryDate('monday').toISOString().split('T')[0]
+
+const { data: existingOrder } = await supabase
+  .from('orders')
+  .select('id')
+  .eq('customer_id', customerId)
+  .eq('delivery_window_id', w.id)
+  .gte('delivery_date', weekStart)
+  .lte('delivery_date', weekEnd)
+  .maybeSingle()
 
       let orderId: string
 
