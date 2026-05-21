@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
+
 export default function OrderPage() {
   const [products, setProducts] = useState<any[]>([])
   const [parProductIds, setParProductIds] = useState<Set<string>>(new Set())
@@ -14,6 +15,55 @@ export default function OrderPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const supabase = createClient()
+
+  // ── Date helpers ──────────────────────────────────────────────
+
+  function isPastCutoff(): boolean {
+    const now = new Date()
+    return now.getDay() === 0 && now.getHours() >= 12
+  }
+
+  function getOrderableTuesday(): Date {
+    const today = new Date()
+    const day = today.getDay()
+    let tueDiff = 2 - day
+    if (tueDiff <= 0) tueDiff += 7
+    if (isPastCutoff()) tueDiff += 7
+    const tue = new Date(today)
+    tue.setDate(today.getDate() + tueDiff)
+    tue.setHours(0, 0, 0, 0)
+    return tue
+  }
+
+  function getDeliveryDate(dayOfWeek: string): Date {
+    const tue = getOrderableTuesday()
+    const offsets: Record<string, number> = {
+      tuesday: 0, wednesday: 1, thursday: 2,
+      friday: 3, saturday: 4, sunday: 5, monday: 6,
+    }
+    const d = new Date(tue)
+    d.setDate(tue.getDate() + (offsets[dayOfWeek] ?? 0))
+    return d
+  }
+
+  function getOrderableSunday(): Date {
+    const tue = getOrderableTuesday()
+    const sun = new Date(tue)
+    sun.setDate(tue.getDate() - 2)
+    return sun
+  }
+
+  function getWeekRange(): string {
+    const start = getOrderableTuesday()
+    const end = getDeliveryDate('monday')
+    const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    return `${fmt(start)}–${fmt(end)}`
+  }
+
+  function getCutoffString(): string {
+    const sunday = getOrderableSunday()
+    return sunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  }
 
   useEffect(() => {
     async function load() {
@@ -89,50 +139,6 @@ export default function OrderPage() {
     load()
   }, [])
 
-  function getNextDeliveryDate(dayOfWeek: string): Date {
-    const today = new Date()
-    const current = today.getDay()
-    let tueDiff = 2 - current
-    if (tueDiff <= 0) tueDiff += 7
-    const nextTue = new Date(today)
-    nextTue.setDate(today.getDate() + tueDiff)
-    const tuWeekOrder: Record<string, number> = {
-      tuesday: 0, wednesday: 1, thursday: 2,
-      friday: 3, saturday: 4, sunday: 5, monday: 6,
-    }
-    const result = new Date(nextTue)
-    result.setDate(nextTue.getDate() + tuWeekOrder[dayOfWeek])
-    return result
-  }
-
-  function getUpcomingSunday(): Date {
-    // The Sunday before the delivery week (cutoff day)
-    const tuesday = getNextDeliveryDate('tuesday')
-    const sunday = new Date(tuesday)
-    sunday.setDate(tuesday.getDate() - 2)
-    return sunday
-  }
-
-  function getWeekRange(): string {
-    const start = getNextDeliveryDate('tuesday')
-    const end = getNextDeliveryDate('monday')
-    const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    return `${fmt(start)}–${fmt(end)}`
-  }
-
-  function getCutoffString(): string {
-    const sunday = getUpcomingSunday()
-    return sunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-  }
-
-  function isOrderingOpen(): boolean {
-    const now = new Date()
-    const sunday = getUpcomingSunday()
-    const cutoff = new Date(sunday)
-    cutoff.setHours(12, 0, 0, 0)
-    return now < cutoff
-  }
-
   function getPrice(product: any) {
     const cents = customerPrices[product.id] ?? product.price_cents
     if (!cents) return null
@@ -186,7 +192,7 @@ export default function OrderPage() {
     const windowsWithItems = deliveryWindows.filter(w => colTotal(w.id) > 0)
 
     for (const w of windowsWithItems) {
-      const deliveryDate = getNextDeliveryDate(w.day_of_week)
+      const deliveryDate = getDeliveryDate(w.day_of_week)
       const dateStr = deliveryDate.toISOString().split('T')[0]
 
       const { data: existingOrder } = await supabase
@@ -257,11 +263,12 @@ export default function OrderPage() {
       }
     }
 
-   window.location.href = `/order/confirmation?week=${encodeURIComponent(getWeekRange())}`
+    window.location.href = `/order/confirmation?week=${encodeURIComponent(getWeekRange())}`
+  }
 
   if (loading) return <main style={{ padding: 40 }}>Loading...</main>
 
-  const orderingOpen = isOrderingOpen()
+  const pastCutoff = isPastCutoff()
   const weekRange = getWeekRange()
   const cutoffString = getCutoffString()
 
@@ -291,7 +298,6 @@ export default function OrderPage() {
                 min="0"
                 value={line?.quantity || 0}
                 onChange={e => updateQuantity(w.id, p.id, e.target.value)}
-                disabled={!orderingOpen}
                 style={{
                   width: 54,
                   padding: '4px 6px',
@@ -310,7 +316,6 @@ export default function OrderPage() {
                       type="checkbox"
                       checked={line?.sliced || false}
                       onChange={e => updateSliced(w.id, p.id, e.target.checked)}
-                      disabled={!orderingOpen}
                       style={{ marginRight: 3 }}
                     />
                     sliced
@@ -326,23 +331,27 @@ export default function OrderPage() {
 
   return (
     <main style={{ maxWidth: 900, margin: '40px auto', padding: '0 20px' }}>
-      <h1 style={{ marginBottom: 4 }}>This Week's Order</h1>
+      <h1 style={{ marginBottom: 4 }}>Place an Order</h1>
       <p style={{ color: '#888', fontSize: 14, marginBottom: 24 }}>
         Deliveries for {weekRange}. Changes here won't affect your standing order.
-        Orders close {cutoffString} at noon.
+        {!pastCutoff && ` Orders close ${cutoffString} at noon.`}
       </p>
 
-      {!orderingOpen && (
-        <p style={{
-          background: '#fff3cd',
-          color: '#856404',
-          padding: '12px 16px',
+      {pastCutoff && (
+        <div style={{
+          background: '#f0f7ff',
+          border: '1px solid #cce0ff',
           borderRadius: 6,
+          padding: '12px 16px',
           marginBottom: 24,
+          fontSize: 14,
+          color: '#1a4a7a',
         }}>
-          Orders for {weekRange} are closed — the {cutoffString} noon deadline has passed.
-          Showing the following week below.
-        </p>
+          Ordering for this week is closed. You're now placing an order for {weekRange}.{' '}
+          <a href="/my-orders" style={{ color: 'var(--accent)', fontWeight: 500 }}>
+            View your current week's order →
+          </a>
+        </div>
       )}
 
       <div style={{ overflowX: 'auto' }}>
@@ -355,7 +364,7 @@ export default function OrderPage() {
                 <th key={w.id} style={{ padding: '8px 8px', textAlign: 'center', minWidth: 80 }}>
                   <div style={{ fontWeight: 600 }}>{dayShort[w.day_of_week]}</div>
                   <div style={{ fontSize: 11, color: '#999', fontWeight: 'normal' }}>
-                    {getNextDeliveryDate(w.day_of_week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    {getDeliveryDate(w.day_of_week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </div>
                 </th>
               ))}
@@ -402,7 +411,6 @@ export default function OrderPage() {
         <textarea
           value={notes}
           onChange={e => setNotes(e.target.value)}
-          disabled={!orderingOpen}
           placeholder="e.g. back door delivery, skip the rye this week..."
           rows={3}
           style={{
@@ -422,18 +430,10 @@ export default function OrderPage() {
       <div style={{ marginTop: 24, marginBottom: 60 }}>
         <button
           onClick={handleSubmit}
-          disabled={submitting || !orderingOpen}
-          style={{
-            padding: '12px 40px',
-            background: '#000',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 6,
-            cursor: orderingOpen ? 'pointer' : 'not-allowed',
-            fontSize: 16,
-          }}
+          disabled={submitting}
+          className="btn btn-primary"
         >
-          {submitting ? 'Submitting...' : `Submit order (${totalItems()} loaves)`}
+          {submitting ? 'Submitting...' : `Submit order for ${weekRange} (${totalItems()} loaves)`}
         </button>
       </div>
     </main>
