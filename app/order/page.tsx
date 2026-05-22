@@ -10,12 +10,14 @@ export default function OrderPage() {
   const [parQtyMap, setParQtyMap] = useState<Record<string, Record<string, number>>>({})
   const [parSlicedMap, setParSlicedMap] = useState<Record<string, Record<string, boolean>>>({})
   const [additions, setAdditions] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
+  const [existingOrders, setExistingOrders] = useState<any[]>([])
   const [notes, setNotes] = useState('')
   const [customerId, setCustomerId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [step, setStep] = useState<'order' | 'confirm'>('order')
+  const [weekOffset, setWeekOffset] = useState(0) // 0 = next orderable week, 1 = week after, etc.
   const supabase = createClient()
 
   // ── Date helpers ──────────────────────────────────────────────
@@ -25,7 +27,8 @@ export default function OrderPage() {
     return now.getDay() === 0 && now.getHours() >= 12
   }
 
-  function getOrderableTuesday(): Date {
+  // Base tuesday = the next upcoming Tuesday (or following if past cutoff)
+  function getBaseTuesday(): Date {
     const today = new Date()
     const day = today.getDay()
     let tueDiff = 2 - day
@@ -37,8 +40,16 @@ export default function OrderPage() {
     return tue
   }
 
-  function getDeliveryDate(dayOfWeek: string): Date {
-    const tue = getOrderableTuesday()
+  // Tuesday for the currently selected week
+  function getSelectedTuesday(): Date {
+    const base = getBaseTuesday()
+    const tue = new Date(base)
+    tue.setDate(base.getDate() + weekOffset * 7)
+    return tue
+  }
+
+  function getDeliveryDate(dayOfWeek: string, tuesday?: Date): Date {
+    const tue = tuesday || getSelectedTuesday()
     const offsets: Record<string, number> = {
       tuesday: 0, wednesday: 1, thursday: 2,
       friday: 3, saturday: 4, sunday: 5, monday: 6,
@@ -48,23 +59,57 @@ export default function OrderPage() {
     return d
   }
 
-  function getOrderableSunday(): Date {
-    const tue = getOrderableTuesday()
+  function getSelectedSunday(): Date {
+    const tue = getSelectedTuesday()
     const sun = new Date(tue)
     sun.setDate(tue.getDate() - 2)
     return sun
   }
 
-  function getWeekRange(): string {
-    const start = getOrderableTuesday()
-    const end = getDeliveryDate('monday')
+  function getWeekRange(tuesday?: Date): string {
+    const tue = tuesday || getSelectedTuesday()
+    const mon = getDeliveryDate('monday', tue)
     const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    return `${fmt(start)}–${fmt(end)}`
+    return `${fmt(tue)}–${fmt(mon)}`
   }
 
   function getCutoffString(): string {
-    const sunday = getOrderableSunday()
+    const sunday = getSelectedSunday()
     return sunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  }
+
+  function isSelectedWeekEditable(): boolean {
+    // Week 0 is always open (cutoff is handled by auto-advance)
+    // Future weeks are always open
+    return true
+  }
+
+  function getWeekStart(): string {
+    return getSelectedTuesday().toISOString().split('T')[0]
+  }
+
+  function getWeekEnd(): string {
+    return getDeliveryDate('monday').toISOString().split('T')[0]
+  }
+
+  // Does the selected week already have a submitted order?
+  function getExistingOrderForWindow(windowId: string): any | null {
+    const weekStart = getWeekStart()
+    const weekEnd = getWeekEnd()
+    return existingOrders.find(o =>
+      o.delivery_window_id === windowId &&
+      o.delivery_date >= weekStart &&
+      o.delivery_date <= weekEnd
+    ) || null
+  }
+
+  function hasExistingOrderThisWeek(): boolean {
+    const weekStart = getWeekStart()
+    const weekEnd = getWeekEnd()
+    return existingOrders.some(o =>
+      o.delivery_date >= weekStart &&
+      o.delivery_date <= weekEnd
+    )
   }
 
   useEffect(() => {
@@ -81,11 +126,15 @@ export default function OrderPage() {
       if (!customer) return
       setCustomerId(customer.id)
 
-      const [pricesRes, parsRes, prodsRes, windowsRes] = await Promise.all([
+      const [pricesRes, parsRes, prodsRes, windowsRes, ordersRes] = await Promise.all([
         supabase.from('customer_products').select('product_id, price_cents').eq('customer_id', customer.id),
         supabase.from('customer_pars').select('product_id, delivery_window_id, quantity, sliced').eq('customer_id', customer.id),
         supabase.from('products').select('*').eq('active', true).order('sort_order'),
         supabase.from('delivery_windows').select('*').eq('active', true).order('sort_order'),
+        supabase.from('orders').select(`
+          id, delivery_date, delivery_window_id, status, is_par, customer_notes,
+          order_items (product_id, quantity, sliced)
+        `).eq('customer_id', customer.id),
       ])
 
       const priceMap: Record<string, number> = {}
@@ -104,22 +153,77 @@ export default function OrderPage() {
       setParSlicedMap(psMap)
 
       const sortedWindows = (windowsRes.data || []).sort((a: any, b: any) => a.sort_order - b.sort_order)
-      setProducts(prodsRes.data || [])
+      const prods = prodsRes.data || []
+      setProducts(prods)
       setDeliveryWindows(sortedWindows)
+      setExistingOrders(ordersRes.data || [])
 
-      // Init additions at 0 for all products/windows
+      // Init additions at 0
       const initAdditions: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
       sortedWindows.forEach((w: any) => {
         initAdditions[w.id] = {}
-        prodsRes.data?.forEach((p: any) => {
+        prods.forEach((p: any) => {
           initAdditions[w.id][p.id] = { quantity: 0, sliced: false }
         })
       })
       setAdditions(initAdditions)
+
+      // Auto-advance to next week if current orderable week already has orders
+      // We need to check after setting existingOrders, so we do it inline here
+      const baseTue = (() => {
+        const today = new Date()
+        const day = today.getDay()
+        let tueDiff = 2 - day
+        if (tueDiff <= 0) tueDiff += 7
+        if (today.getDay() === 0 && today.getHours() >= 12) tueDiff += 7
+        const tue = new Date(today)
+        tue.setDate(today.getDate() + tueDiff)
+        tue.setHours(0, 0, 0, 0)
+        return tue
+      })()
+      const baseWeekStart = baseTue.toISOString().split('T')[0]
+      const baseWeekEnd = new Date(new Date(baseTue).setDate(baseTue.getDate() + 6)).toISOString().split('T')[0]
+      const hasOrderThisWeek = (ordersRes.data || []).some((o: any) =>
+        o.delivery_date >= baseWeekStart && o.delivery_date <= baseWeekEnd
+      )
+      if (hasOrderThisWeek) setWeekOffset(1)
+
       setLoading(false)
     }
     load()
   }, [])
+
+  // When week changes, pre-populate additions from existing order if present
+  useEffect(() => {
+    if (!products.length || !deliveryWindows.length) return
+
+    const newAdditions: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
+    deliveryWindows.forEach((w: any) => {
+      newAdditions[w.id] = {}
+      products.forEach((p: any) => {
+        newAdditions[w.id][p.id] = { quantity: 0, sliced: false }
+      })
+      const existingOrder = getExistingOrderForWindow(w.id)
+      if (existingOrder) {
+        existingOrder.order_items?.forEach((item: any) => {
+          const parQty = parQtyMap[w.id]?.[item.product_id] || 0
+          const additionalQty = Math.max(0, item.quantity - parQty)
+          newAdditions[w.id][item.product_id] = {
+            quantity: additionalQty,
+            sliced: item.sliced,
+          }
+        })
+      }
+    })
+    setAdditions(newAdditions)
+    setNotes(existingOrders.find(o => {
+      const ws = getWeekStart()
+      const we = getWeekEnd()
+      return o.delivery_date >= ws && o.delivery_date <= we && o.customer_notes
+    })?.customer_notes || '')
+    setStep('order')
+    setError(null)
+  }, [weekOffset, existingOrders, products, deliveryWindows])
 
   function getPrice(product: any) {
     const cents = customerPrices[product.id] ?? product.price_cents
@@ -140,20 +244,12 @@ export default function OrderPage() {
     }))
   }
 
-  // Merged quantity = par + additions for a given window/product
   function mergedQty(windowId: string, productId: string): number {
     return (parQtyMap[windowId]?.[productId] || 0) + (additions[windowId]?.[productId]?.quantity || 0)
   }
 
-  // Merged sliced = par sliced OR additions sliced
   function mergedSliced(windowId: string, productId: string): boolean {
     return (parSlicedMap[windowId]?.[productId] || false) || (additions[windowId]?.[productId]?.sliced || false)
-  }
-
-  function hasAnyAdditions(): boolean {
-    return deliveryWindows.some(w =>
-      products.some(p => (additions[w.id]?.[p.id]?.quantity || 0) > 0)
-    )
   }
 
   function hasAnyPar(): boolean {
@@ -176,7 +272,6 @@ export default function OrderPage() {
     return deliveryWindows.reduce((t, w) => t + colMergedTotal(w.id), 0)
   }
 
-  // Products that appear in the merged order (par or additions > 0)
   function mergedOrderLines(windowId: string) {
     return products.filter(p => mergedQty(windowId, p.id) > 0)
   }
@@ -194,32 +289,33 @@ export default function OrderPage() {
     setSubmitting(true)
     setError(null)
 
+    const weekStart = getWeekStart()
+    const weekEnd = getWeekEnd()
     const windowsWithItems = deliveryWindows.filter(w => colMergedTotal(w.id) > 0)
 
     for (const w of windowsWithItems) {
       const deliveryDate = getDeliveryDate(w.day_of_week)
       const dateStr = deliveryDate.toISOString().split('T')[0]
 
-     const weekStart = getOrderableTuesday().toISOString().split('T')[0]
-const weekEnd = getDeliveryDate('monday').toISOString().split('T')[0]
-
-const { data: existingOrder } = await supabase
-  .from('orders')
-  .select('id')
-  .eq('customer_id', customerId)
-  .eq('delivery_window_id', w.id)
-  .gte('delivery_date', weekStart)
-  .lte('delivery_date', weekEnd)
-  .maybeSingle()
+      const existingOrder = getExistingOrderForWindow(w.id) || await supabase
+        .from('orders')
+        .select('id')
+        .eq('customer_id', customerId)
+        .eq('delivery_window_id', w.id)
+        .gte('delivery_date', weekStart)
+        .lte('delivery_date', weekEnd)
+        .maybeSingle()
+        .then(r => r.data)
 
       let orderId: string
 
-      if (existingOrder) {
+      if (existingOrder?.id) {
         orderId = existingOrder.id
         await supabase.from('order_items').delete().eq('order_id', orderId)
         await supabase.from('orders').update({
           status: 'pending',
           is_par: false,
+          delivery_date: dateStr,
           customer_notes: notes || null,
           submitted_at: new Date().toISOString(),
         }).eq('id', orderId)
@@ -246,7 +342,6 @@ const { data: existingOrder } = await supabase
         orderId = order.id
       }
 
-      // Insert merged quantities
       const orderItems = products
         .filter(p => mergedQty(w.id, p.id) > 0)
         .map(p => ({
@@ -274,9 +369,9 @@ const { data: existingOrder } = await supabase
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
-  const pastCutoff = isPastCutoff()
   const weekRange = getWeekRange()
   const cutoffString = getCutoffString()
+  const isEditing = hasExistingOrderThisWeek()
 
   const dayShort: Record<string, string> = {
     monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
@@ -357,7 +452,7 @@ const { data: existingOrder } = await supabase
             disabled={submitting}
             className="btn btn-primary"
           >
-            {submitting ? 'Submitting...' : `Submit order (${totalMergedItems()} loaves)`}
+            {submitting ? 'Submitting...' : `${isEditing ? 'Update' : 'Submit'} order (${totalMergedItems()} loaves)`}
           </button>
         </div>
       </div>
@@ -368,27 +463,57 @@ const { data: existingOrder } = await supabase
   return (
     <div>
       <h1 style={{ marginBottom: 4 }}>Place an Order</h1>
-      <p className="page-subtitle">
-        Deliveries for {weekRange}.
-        {!pastCutoff && ` Orders close ${cutoffString} at noon.`}
-      </p>
 
-      {pastCutoff && (
-        <div style={{
-          background: '#f0f7ff',
-          border: '1px solid #cce0ff',
-          borderRadius: 6,
-          padding: '12px 16px',
-          marginBottom: 24,
-          fontSize: 14,
-          color: '#1a4a7a',
-        }}>
-          Ordering for this week is closed. You're now placing an order for {weekRange}.{' '}
-          <a href="/my-orders" style={{ color: 'var(--accent)', fontWeight: 500 }}>
-            View your current week's order →
-          </a>
+      {/* Week selector */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <button
+          onClick={() => setWeekOffset(o => Math.max(0, o - 1))}
+          disabled={weekOffset === 0}
+          style={{
+            background: 'none',
+            border: '1px solid var(--gray-200)',
+            borderRadius: 6,
+            padding: '6px 12px',
+            cursor: weekOffset === 0 ? 'default' : 'pointer',
+            color: weekOffset === 0 ? 'var(--gray-300)' : 'var(--gray-700)',
+            fontSize: 16,
+          }}
+        >
+          ‹
+        </button>
+        <div style={{ textAlign: 'center', minWidth: 160 }}>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>{weekRange}</div>
+          <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>
+            {weekOffset === 0 ? `Closes ${cutoffString} at noon` : `Week ${weekOffset + 1} out`}
+          </div>
         </div>
-      )}
+        <button
+          onClick={() => setWeekOffset(o => Math.min(3, o + 1))}
+          disabled={weekOffset === 3}
+          style={{
+            background: 'none',
+            border: '1px solid var(--gray-200)',
+            borderRadius: 6,
+            padding: '6px 12px',
+            cursor: weekOffset === 3 ? 'default' : 'pointer',
+            color: weekOffset === 3 ? 'var(--gray-300)' : 'var(--gray-700)',
+            fontSize: 16,
+          }}
+        >
+          ›
+        </button>
+        {isEditing && (
+          <span style={{
+            fontSize: 12,
+            padding: '3px 10px',
+            borderRadius: 4,
+            background: '#cce5ff',
+            color: '#004085',
+          }}>
+            Order submitted — editing
+          </span>
+        )}
+      </div>
 
       {/* Standing Order summary */}
       <div style={{
@@ -452,7 +577,9 @@ const { data: existingOrder } = await supabase
       </div>
 
       {/* Additional items */}
-      <h2 style={{ fontSize: 15, marginBottom: 8 }}>Additional items this week</h2>
+      <h2 style={{ fontSize: 15, marginBottom: 8 }}>
+        {isEditing ? 'Edit additional items' : 'Additional items this week'}
+      </h2>
       <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 16 }}>
         Add extra loaves on top of your standing order. Changes here won't affect your standing order.
       </p>
@@ -460,13 +587,13 @@ const { data: existingOrder } = await supabase
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 600 }}>
           <thead>
-            <tr style={{ borderBottom: '2px solid #eee' }}>
+            <tr style={{ borderBottom: '2px solid var(--gray-200)' }}>
               <th style={{ textAlign: 'left', padding: '8px 12px 8px 0', minWidth: 200 }}>Product</th>
-              <th style={{ textAlign: 'right', padding: '8px 16px 8px 0', minWidth: 60, color: '#999', fontWeight: 'normal', fontSize: 13 }}>Price</th>
+              <th style={{ textAlign: 'right', padding: '8px 16px 8px 0', minWidth: 60, color: 'var(--gray-400)', fontWeight: 'normal', fontSize: 13 }}>Price</th>
               {deliveryWindows.map(w => (
                 <th key={w.id} style={{ padding: '8px', textAlign: 'center', minWidth: 80 }}>
                   <div style={{ fontWeight: 600 }}>{dayShort[w.day_of_week]}</div>
-                  <div style={{ fontSize: 11, color: '#999', fontWeight: 'normal' }}>
+                  <div style={{ fontSize: 11, color: 'var(--gray-400)', fontWeight: 'normal' }}>
                     {getDeliveryDate(w.day_of_week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </div>
                 </th>
@@ -475,37 +602,41 @@ const { data: existingOrder } = await supabase
           </thead>
           <tbody>
             {products.map(p => (
-              <tr key={p.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+              <tr key={p.id} style={{ borderBottom: '1px solid var(--gray-100)' }}>
                 <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
                   <div>{p.name}</div>
-                  {p.can_be_sliced && <div style={{ fontSize: 11, color: '#bbb' }}>sliceable</div>}
+                  {p.can_be_sliced && <div style={{ fontSize: 11, color: 'var(--gray-300)' }}>sliceable</div>}
                 </td>
-                <td style={{ padding: '6px 16px 6px 0', textAlign: 'right', fontSize: 13, color: '#666' }}>
+                <td style={{ padding: '6px 16px 6px 0', textAlign: 'right', fontSize: 13, color: 'var(--gray-400)' }}>
                   {getPrice(p) ? `$${getPrice(p)}` : '—'}
                 </td>
                 {deliveryWindows.map(w => {
                   const add = additions[w.id]?.[p.id]
+                  const hasValue = (add?.quantity || 0) > 0
                   return (
                     <td key={w.id} style={{ padding: '4px 8px', textAlign: 'center' }}>
                       <input
                         type="number"
                         min="0"
-                        value={add?.quantity || 0}
+                        value={add?.quantity || ''}
+                        placeholder="0"
                         onChange={e => updateAddition(w.id, p.id, 'quantity', e.target.value)}
                         style={{
                           width: 54,
-                          padding: '4px 6px',
-                          border: '1px solid #ddd',
+                          padding: '6px',
+                          border: `1px solid ${hasValue ? 'var(--accent)' : 'var(--gray-200)'}`,
                           borderRadius: 4,
                           textAlign: 'center',
                           fontSize: 14,
-                          color: '#000',
-                          background: (add?.quantity || 0) > 0 ? '#f0f7ff' : '#fff',
+                          color: 'var(--gray-900)',
+                          background: hasValue ? 'var(--accent-light, #f0f7ff)' : 'var(--gray-50)',
+                          outline: 'none',
+                          appearance: 'textfield',
                         }}
                       />
-                      {p.can_be_sliced && (add?.quantity || 0) > 0 && (
+                      {p.can_be_sliced && hasValue && (
                         <div style={{ fontSize: 11, marginTop: 2 }}>
-                          <label style={{ color: '#666', cursor: 'pointer' }}>
+                          <label style={{ color: 'var(--gray-500)', cursor: 'pointer' }}>
                             <input
                               type="checkbox"
                               checked={add?.sliced || false}
@@ -521,8 +652,8 @@ const { data: existingOrder } = await supabase
                 })}
               </tr>
             ))}
-            <tr style={{ borderTop: '2px solid #eee', fontWeight: 600 }}>
-              <td style={{ padding: '8px 12px 8px 0', fontSize: 13, color: '#666' }}>Additional total</td>
+            <tr style={{ borderTop: '2px solid var(--gray-200)', fontWeight: 600 }}>
+              <td style={{ padding: '8px 12px 8px 0', fontSize: 13, color: 'var(--gray-500)' }}>Additional total</td>
               <td></td>
               {deliveryWindows.map(w => (
                 <td key={w.id} style={{ padding: '8px', textAlign: 'center', fontSize: 14 }}>
@@ -535,7 +666,7 @@ const { data: existingOrder } = await supabase
       </div>
 
       <div style={{ marginTop: 24 }}>
-        <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: '#444' }}>
+        <label style={{ display: 'block', marginBottom: 6, fontSize: 14, color: 'var(--gray-600)' }}>
           Notes / special instructions (optional)
         </label>
         <textarea
@@ -546,10 +677,10 @@ const { data: existingOrder } = await supabase
           style={{
             width: '100%',
             padding: 10,
-            border: '1px solid #ddd',
+            border: '1px solid var(--gray-200)',
             borderRadius: 6,
             fontSize: 14,
-            color: '#000',
+            color: 'var(--gray-900)',
             resize: 'vertical',
           }}
         />
