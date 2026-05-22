@@ -105,6 +105,9 @@ export default function MyOrdersPage() {
     if (!grouped[key]) grouped[key] = []
     grouped[key].push(o)
   })
+  Object.keys(grouped).forEach(key => {
+    grouped[key].sort((a, b) => a.delivery_date.localeCompare(b.delivery_date))
+  })
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
