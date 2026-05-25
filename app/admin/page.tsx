@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
 
 type Tab = 'orders' | 'thisweek' | 'pricing' | 'customers' | 'products' | 'users'
+type OrderStatus = 'pending' | 'confirmed' | 'in_production' | 'fulfilled' | 'cancelled'
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 const CUSTOMER_TYPES = ['restaurant', 'grocery']
@@ -16,6 +17,22 @@ const EMPTY_CUSTOMER = {
 const EMPTY_PRODUCT = {
   name: '', sku: '', price_cents: '', unit_label: 'loaf',
   can_be_sliced: false, active: true, sort_order: '',
+}
+
+const STATUS_LABELS: Record<OrderStatus, string> = {
+  pending: 'Pending',
+  confirmed: 'Confirmed',
+  in_production: 'In Production',
+  fulfilled: 'Fulfilled',
+  cancelled: 'Cancelled',
+}
+
+const STATUS_COLORS: Record<OrderStatus, { background: string; color: string }> = {
+  pending: { background: '#fff3cd', color: '#856404' },
+  confirmed: { background: '#d4edda', color: '#155724' },
+  in_production: { background: '#cce5ff', color: '#004085' },
+  fulfilled: { background: '#e2e3e5', color: '#383d41' },
+  cancelled: { background: '#f8d7da', color: '#721c24' },
 }
 
 export default function AdminPage() {
@@ -34,6 +51,7 @@ export default function AdminPage() {
   const [priceError, setPriceError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null)
 
   // Customer form
   const [editingCustomer, setEditingCustomer] = useState<any | null>(null)
@@ -146,6 +164,19 @@ export default function AdminPage() {
   })
   const totalsList = Object.values(totals).sort((a: any, b: any) => a.name.localeCompare(b.name))
 
+  async function handleStatusChange(orderId: string, newStatus: OrderStatus) {
+    setUpdatingStatus(orderId)
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: newStatus })
+      .eq('id', orderId)
+
+    if (!error) {
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
+    }
+    setUpdatingStatus(null)
+  }
+
   // ── This Week tab ─────────────────────────────────────────────
   const { tuesday, monday, sunday } = getUpcomingWeek()
   const thisWeekOrders = orders.filter((o: any) => {
@@ -185,15 +216,9 @@ export default function AdminPage() {
   function startEditCustomer(c: any) {
     setEditingCustomer(c)
     setCustomerForm({
-      name: c.name || '',
-      contact_name: c.contact_name || '',
-      email: c.email || '',
-      phone: c.phone || '',
-      type: c.type || 'restaurant',
-      delivery_day: c.delivery_day || 'tuesday',
-      address: c.address || '',
-      notes: c.notes || '',
-      active: c.active ?? true,
+      name: c.name || '', contact_name: c.contact_name || '', email: c.email || '',
+      phone: c.phone || '', type: c.type || 'restaurant', delivery_day: c.delivery_day || 'tuesday',
+      address: c.address || '', notes: c.notes || '', active: c.active ?? true,
     })
     setCustomerError(null)
     setCustomerSuccess(null)
@@ -211,19 +236,13 @@ export default function AdminPage() {
     if (!customerForm.email.trim()) { setCustomerError('Email is required'); return }
     setSavingCustomer(true)
     setCustomerError(null)
-
     const payload = {
-      name: customerForm.name.trim(),
-      contact_name: customerForm.contact_name.trim() || null,
-      email: customerForm.email.trim(),
-      phone: customerForm.phone.trim() || null,
-      type: customerForm.type,
-      delivery_day: customerForm.delivery_day,
-      address: customerForm.address.trim() || null,
-      notes: customerForm.notes.trim() || null,
+      name: customerForm.name.trim(), contact_name: customerForm.contact_name.trim() || null,
+      email: customerForm.email.trim(), phone: customerForm.phone.trim() || null,
+      type: customerForm.type, delivery_day: customerForm.delivery_day,
+      address: customerForm.address.trim() || null, notes: customerForm.notes.trim() || null,
       active: customerForm.active,
     }
-
     if (editingCustomer === 'new') {
       const { error } = await supabase.from('customers').insert(payload)
       if (error) { setCustomerError(error.message); setSavingCustomer(false); return }
@@ -233,7 +252,6 @@ export default function AdminPage() {
       if (error) { setCustomerError(error.message); setSavingCustomer(false); return }
       setCustomerSuccess('Customer updated')
     }
-
     setSavingCustomer(false)
     setEditingCustomer(null)
     await loadData()
@@ -244,13 +262,10 @@ export default function AdminPage() {
   function startEditProduct(p: any) {
     setEditingProduct(p)
     setProductForm({
-      name: p.name || '',
-      sku: p.sku || '',
+      name: p.name || '', sku: p.sku || '',
       price_cents: p.price_cents ? (p.price_cents / 100).toFixed(2) : '',
-      unit_label: p.unit_label || 'loaf',
-      can_be_sliced: p.can_be_sliced ?? false,
-      active: p.active ?? true,
-      sort_order: p.sort_order ?? '',
+      unit_label: p.unit_label || 'loaf', can_be_sliced: p.can_be_sliced ?? false,
+      active: p.active ?? true, sort_order: p.sort_order ?? '',
     })
     setProductError(null)
     setProductSuccess(null)
@@ -268,17 +283,12 @@ export default function AdminPage() {
     if (!productForm.sku.trim()) { setProductError('SKU is required'); return }
     setSavingProduct(true)
     setProductError(null)
-
     const payload = {
-      name: productForm.name.trim(),
-      sku: productForm.sku.trim(),
+      name: productForm.name.trim(), sku: productForm.sku.trim(),
       price_cents: productForm.price_cents ? Math.round(parseFloat(productForm.price_cents) * 100) : null,
-      unit_label: productForm.unit_label.trim() || 'loaf',
-      can_be_sliced: productForm.can_be_sliced,
-      active: productForm.active,
-      sort_order: productForm.sort_order !== '' ? parseInt(productForm.sort_order) : null,
+      unit_label: productForm.unit_label.trim() || 'loaf', can_be_sliced: productForm.can_be_sliced,
+      active: productForm.active, sort_order: productForm.sort_order !== '' ? parseInt(productForm.sort_order) : null,
     }
-
     if (editingProduct === 'new') {
       const { error } = await supabase.from('products').insert(payload)
       if (error) { setProductError(error.message); setSavingProduct(false); return }
@@ -288,7 +298,6 @@ export default function AdminPage() {
       if (error) { setProductError(error.message); setSavingProduct(false); return }
       setProductSuccess('Product updated')
     }
-
     setSavingProduct(false)
     setEditingProduct(null)
     await loadData()
@@ -301,25 +310,13 @@ export default function AdminPage() {
     if (!userForm.customer_id) { setUserError('Please select a customer'); return }
     setInviting(true)
     setUserError(null)
-
-    // Call our API route to invite the user
     const res = await fetch('/api/admin/invite-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: userForm.email.trim(),
-        customer_id: userForm.customer_id,
-        is_admin: userForm.is_admin,
-      }),
+      body: JSON.stringify({ email: userForm.email.trim(), customer_id: userForm.customer_id, is_admin: userForm.is_admin }),
     })
-
     const data = await res.json()
-    if (!res.ok) {
-      setUserError(data.error || 'Failed to invite user')
-      setInviting(false)
-      return
-    }
-
+    if (!res.ok) { setUserError(data.error || 'Failed to invite user'); setInviting(false); return }
     setInviting(false)
     setUserSuccess(`Invite sent to ${userForm.email}`)
     setUserForm({ email: '', customer_id: '', is_admin: false })
@@ -329,30 +326,17 @@ export default function AdminPage() {
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
   const tabLabels: Record<Tab, string> = {
-    orders: 'Orders',
-    thisweek: 'This Week',
-    pricing: 'Customer Pricing',
-    customers: 'Customers',
-    products: 'Products',
-    users: 'Users',
+    orders: 'Orders', thisweek: 'This Week', pricing: 'Customer Pricing',
+    customers: 'Customers', products: 'Products', users: 'Users',
   }
 
   const formFieldStyle = {
-    display: 'block' as const,
-    width: '100%',
-    padding: '8px 10px',
-    border: '1px solid var(--gray-200)',
-    borderRadius: 6,
-    fontSize: 14,
-    fontFamily: 'var(--font)',
-    color: 'var(--gray-900)',
-    background: '#fff',
-    marginTop: 4,
+    display: 'block' as const, width: '100%', padding: '8px 10px',
+    border: '1px solid var(--gray-200)', borderRadius: 6, fontSize: 14,
+    fontFamily: 'var(--font)', color: 'var(--gray-900)', background: '#fff', marginTop: 4,
   }
 
-  const formRowStyle = {
-    marginBottom: 16,
-  }
+  const formRowStyle = { marginBottom: 16 }
 
   return (
     <div>
@@ -361,22 +345,12 @@ export default function AdminPage() {
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 32, borderBottom: '2px solid var(--gray-200)', flexWrap: 'wrap' as const }}>
         {(['orders', 'thisweek', 'customers', 'products', 'users', 'pricing'] as Tab[]).map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            style={{
-              padding: '10px 20px',
-              background: 'none',
-              border: 'none',
-              borderBottom: tab === t ? '2px solid var(--accent)' : '2px solid transparent',
-              marginBottom: -2,
-              cursor: 'pointer',
-              fontFamily: 'var(--font)',
-              fontSize: 14,
-              fontWeight: tab === t ? 600 : 400,
-              color: tab === t ? 'var(--accent)' : 'var(--gray-500)',
-            }}
-          >
+          <button key={t} onClick={() => setTab(t)} style={{
+            padding: '10px 20px', background: 'none', border: 'none',
+            borderBottom: tab === t ? '2px solid var(--accent)' : '2px solid transparent',
+            marginBottom: -2, cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 14,
+            fontWeight: tab === t ? 600 : 400, color: tab === t ? 'var(--accent)' : 'var(--gray-500)',
+          }}>
             {tabLabels[t]}
           </button>
         ))}
@@ -418,32 +392,54 @@ export default function AdminPage() {
                   </tbody>
                 </table>
               )}
+
               <h2>Orders ({dateOrders.length})</h2>
-              {dateOrders.map((order: any) => (
-                <div key={order.id} style={{ border: '1px solid var(--gray-200)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <strong>{order.customer.name}</strong>
-                    <span style={{
-                      fontSize: 12, padding: '2px 8px', borderRadius: 4,
-                      background: order.status === 'confirmed' ? '#d4edda' : '#fff3cd',
-                      color: order.status === 'confirmed' ? '#155724' : '#856404',
-                    }}>
-                      {order.status}{order.is_par ? ' (par)' : ''}
-                    </span>
+              {dateOrders.map((order: any) => {
+                const status = order.status as OrderStatus
+                const colors = STATUS_COLORS[status] || STATUS_COLORS.pending
+                return (
+                  <div key={order.id} style={{ border: '1px solid var(--gray-200)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <div>
+                        <strong>{order.customer.name}</strong>
+                        {order.is_par && (
+                          <span style={{ fontSize: 11, color: 'var(--gray-400)', marginLeft: 8 }}>par</span>
+                        )}
+                      </div>
+                      <select
+                        value={order.status}
+                        disabled={updatingStatus === order.id}
+                        onChange={e => handleStatusChange(order.id, e.target.value as OrderStatus)}
+                        style={{
+                          fontSize: 12,
+                          padding: '3px 8px',
+                          borderRadius: 4,
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontFamily: 'var(--font)',
+                          fontWeight: 500,
+                          ...colors,
+                        }}
+                      >
+                        {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <tbody>
+                        {order.order_items?.map((line: any, i: number) => (
+                          <tr key={i} style={{ borderBottom: '1px solid var(--gray-100)' }}>
+                            <td style={{ padding: '4px 0' }}>{line.product.name}</td>
+                            <td style={{ padding: '4px 0', color: 'var(--gray-500)', fontSize: 13 }}>{line.sliced ? 'sliced' : ''}</td>
+                            <td style={{ padding: '4px 0', textAlign: 'right' }}>x{line.quantity}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <tbody>
-                      {order.order_items?.map((line: any, i: number) => (
-                        <tr key={i} style={{ borderBottom: '1px solid var(--gray-100)' }}>
-                          <td style={{ padding: '4px 0' }}>{line.product.name}</td>
-                          <td style={{ padding: '4px 0', color: 'var(--gray-500)', fontSize: 13 }}>{line.sliced ? 'sliced' : ''}</td>
-                          <td style={{ padding: '4px 0', textAlign: 'right' }}>x{line.quantity}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
+                )
+              })}
             </>
           )}
         </>
@@ -579,14 +575,7 @@ export default function AdminPage() {
 
           <table className="data-table">
             <thead>
-              <tr>
-                <th>Name</th>
-                <th>Contact</th>
-                <th>Email</th>
-                <th>Type</th>
-                <th>Active</th>
-                <th></th>
-              </tr>
+              <tr><th>Name</th><th>Contact</th><th>Email</th><th>Type</th><th>Active</th><th></th></tr>
             </thead>
             <tbody>
               {allCustomers.map(c => (
@@ -668,14 +657,7 @@ export default function AdminPage() {
 
           <table className="data-table">
             <thead>
-              <tr>
-                <th>Name</th>
-                <th>SKU</th>
-                <th>Price</th>
-                <th>Sliceable</th>
-                <th>Active</th>
-                <th></th>
-              </tr>
+              <tr><th>Name</th><th>SKU</th><th>Price</th><th>Sliceable</th><th>Active</th><th></th></tr>
             </thead>
             <tbody>
               {allProducts.map(p => (
@@ -703,46 +685,31 @@ export default function AdminPage() {
           <p className="page-subtitle">
             Invite a contact at a customer to log in. They'll receive a magic link by email.
           </p>
-
           <div style={formRowStyle}>
             <label className="form-label">Email address</label>
-            <input
-              type="email"
-              style={formFieldStyle}
-              value={userForm.email}
+            <input type="email" style={formFieldStyle} value={userForm.email}
               onChange={e => setUserForm(p => ({ ...p, email: e.target.value }))}
-              placeholder="contact@restaurant.com"
-            />
+              placeholder="contact@restaurant.com" />
           </div>
-
           <div style={formRowStyle}>
             <label className="form-label">Customer</label>
-            <select
-              style={formFieldStyle}
-              value={userForm.customer_id}
-              onChange={e => setUserForm(p => ({ ...p, customer_id: e.target.value }))}
-            >
+            <select style={formFieldStyle} value={userForm.customer_id}
+              onChange={e => setUserForm(p => ({ ...p, customer_id: e.target.value }))}>
               <option value="">Select a customer...</option>
               {allCustomers.filter(c => c.active).map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
           </div>
-
           <div style={{ ...formRowStyle, marginBottom: 24 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 }}>
-              <input
-                type="checkbox"
-                checked={userForm.is_admin}
-                onChange={e => setUserForm(p => ({ ...p, is_admin: e.target.checked }))}
-              />
+              <input type="checkbox" checked={userForm.is_admin}
+                onChange={e => setUserForm(p => ({ ...p, is_admin: e.target.checked }))} />
               Admin access
             </label>
           </div>
-
           {userError && <p style={{ color: 'red', marginBottom: 12 }}>{userError}</p>}
           {userSuccess && <span className="alert alert-success" style={{ display: 'block', marginBottom: 16, padding: '8px 12px' }}>✓ {userSuccess}</span>}
-
           <button onClick={handleInviteUser} disabled={inviting} className="btn btn-primary">
             {inviting ? 'Sending invite...' : 'Send invite'}
           </button>
@@ -755,7 +722,8 @@ export default function AdminPage() {
           <p className="page-subtitle">Set custom prices per customer. Leave blank to use the default product price.</p>
           <div style={{ marginBottom: 32 }}>
             <label className="form-label">Customer</label>
-            <select value={selectedCustomerId || ''} onChange={e => setSelectedCustomerId(e.target.value)} className="text-input" style={{ maxWidth: 320, marginTop: 8 }}>
+            <select value={selectedCustomerId || ''} onChange={e => setSelectedCustomerId(e.target.value)}
+              className="text-input" style={{ maxWidth: 320, marginTop: 8 }}>
               {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
@@ -782,14 +750,11 @@ export default function AdminPage() {
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
                           <span style={{ color: 'var(--gray-500)', fontSize: 13 }}>$</span>
-                          <input
-                            type="number" min="0" step="0.01"
+                          <input type="number" min="0" step="0.01"
                             placeholder={p.price_cents ? (p.price_cents / 100).toFixed(2) : '0.00'}
                             value={prices[p.id] ?? ''}
                             onChange={e => setPrices(prev => ({ ...prev, [p.id]: e.target.value }))}
-                            className="qty-input"
-                            style={{ width: 80, textAlign: 'right' }}
-                          />
+                            className="qty-input" style={{ width: 80, textAlign: 'right' }} />
                         </div>
                       </td>
                     </tr>
