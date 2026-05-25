@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Email and customer are required' }, { status: 400 })
   }
 
-  // Check if customer record with this email already exists
+  // Check if a customer record with this email already exists
   const { data: existingCustomer } = await supabase
     .from('customers')
     .select('id')
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     .maybeSingle()
 
   if (!existingCustomer) {
-    // Update the customer record to use this email
+    // Update the selected customer record to use this email
     const { error: updateError } = await supabase
       .from('customers')
       .update({ email, is_admin: is_admin || false })
