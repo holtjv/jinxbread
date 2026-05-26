@@ -45,7 +45,6 @@ export default function MyOrdersPage() {
 
       if (!error) {
         setOrders(data || [])
-        // Auto-expand the most recent week
         if (data && data.length > 0) {
           const firstWeek = getWeekKey(data[0].delivery_date)
           setExpandedWeeks(new Set([firstWeek]))
@@ -138,7 +137,6 @@ export default function MyOrdersPage() {
     })
   }
 
-  // Group and sort orders by week
   const grouped: Record<string, any[]> = {}
   orders.forEach(o => {
     const key = getWeekKey(o.delivery_date)
@@ -176,7 +174,6 @@ export default function MyOrdersPage() {
                 marginBottom: 8,
                 overflow: 'hidden',
               }}>
-                {/* Week header row */}
                 <div
                   onClick={() => toggleWeek(weekLabel)}
                   style={{
@@ -186,7 +183,7 @@ export default function MyOrdersPage() {
                     padding: '12px 16px',
                     cursor: 'pointer',
                     background: isExpanded ? 'var(--gray-50)' : '#fff',
-                    userSelect: 'none',
+                    userSelect: 'none' as const,
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -212,7 +209,7 @@ export default function MyOrdersPage() {
                           padding: '3px 10px',
                           border: '1px solid var(--accent)',
                           borderRadius: 4,
-                          whiteSpace: 'nowrap',
+                          whiteSpace: 'nowrap' as const,
                         }}
                       >
                         Edit order
@@ -221,7 +218,6 @@ export default function MyOrdersPage() {
                   </div>
                 </div>
 
-                {/* Expanded order details */}
                 {isExpanded && (
                   <div style={{ borderTop: '1px solid var(--gray-100)', padding: '12px 16px' }}>
                     {weekOrders.map(order => {
@@ -238,7 +234,7 @@ export default function MyOrdersPage() {
                               </span>
                               <span style={{
                                 fontSize: 12, padding: '2px 8px', borderRadius: 4,
-                                whiteSpace: 'nowrap', ...colors,
+                                whiteSpace: 'nowrap' as const, ...colors,
                               }}>
                                 {statusLabel(order.status, order.is_par)}
                               </span>
