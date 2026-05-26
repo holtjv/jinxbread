@@ -137,7 +137,8 @@ export default function MyOrdersPage() {
                   </div>
                   {editable && (
                     
-                      href={editUrl}
+                      
+                    <a href={editUrl}
                       style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 500, textDecoration: 'none', padding: '4px 12px', border: '1px solid var(--accent)', borderRadius: 4, whiteSpace: 'nowrap', marginLeft: 16 }}
                     >
                       Edit order
