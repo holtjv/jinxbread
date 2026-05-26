@@ -7,93 +7,53 @@ export default function MyOrdersPage() {
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set())
-
   const supabase = createClient()
 
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-
-      const { data: customer } = await supabase
-        .from('customers')
-        .select('id')
-        .eq('email', user.email)
-        .single()
-
+      const { data: customer } = await supabase.from('customers').select('id').eq('email', user.email).single()
       if (!customer) return
-
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
-          id,
-          delivery_date,
-          delivery_window_id,
-          status,
-          is_par,
-          customer_notes,
-          submitted_at,
-          delivery_window:delivery_windows (label, day_of_week),
-          order_items (
-            quantity,
-            sliced,
-            product:products (name, sku)
-          )
-        `)
-        .eq('customer_id', customer.id)
-        .order('delivery_date', { ascending: false })
-
-      if (!error) {
-        setOrders(data || [])
-        if (data && data.length > 0) {
-          const firstWeek = getWeekKey(data[0].delivery_date)
-          setExpandedWeeks(new Set([firstWeek]))
-        }
-      }
+      const { data, error } = await supabase.from('orders').select(`
+        id, delivery_date, delivery_window_id, status, is_par, customer_notes, submitted_at,
+        delivery_window:delivery_windows (label, day_of_week),
+        order_items (quantity, sliced, product:products (name, sku))
+      `).eq('customer_id', customer.id).order('delivery_date', { ascending: false })
+      if (!error) setOrders(data || [])
       setLoading(false)
     }
     load()
   }, [])
 
   function fmtDate(dateStr: string) {
-    return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', {
-      weekday: 'long', month: 'long', day: 'numeric'
-    })
+    return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   }
 
   function statusLabel(status: string, isPar: boolean) {
     const labels: Record<string, string> = {
-      pending: 'Submitted',
-      confirmed: 'Confirmed',
-      in_production: 'In Production',
-      fulfilled: 'Delivered',
-      cancelled: 'Cancelled',
-      par_pending: 'Standing Order',
+      pending: 'Submitted', confirmed: 'Confirmed', in_production: 'In Production',
+      fulfilled: 'Delivered', cancelled: 'Cancelled', par_pending: 'Standing Order',
     }
     let label = labels[status] || status
     if (isPar && status === 'pending') label = 'Auto-submitted (par)'
     return label
   }
 
-  function statusColors(status: string): { background: string; color: string } {
+  function statusColors(status: string) {
     switch (status) {
-      case 'fulfilled':
-        return { background: '#d4edda', color: '#155724' }
-      case 'confirmed':
-      case 'in_production':
-        return { background: '#cce5ff', color: '#004085' }
-      case 'cancelled':
-        return { background: '#f8d7da', color: '#721c24' }
-      default:
-        return { background: '#fff3cd', color: '#856404' }
+      case 'fulfilled': return { background: '#d4edda', color: '#155724' }
+      case 'confirmed': case 'in_production': return { background: '#cce5ff', color: '#004085' }
+      case 'cancelled': return { background: '#f8d7da', color: '#721c24' }
+      default: return { background: '#fff3cd', color: '#856404' }
     }
   }
 
-  function totalLoaves(order: any): number {
+  function totalLoaves(order: any) {
     return order.order_items?.reduce((t: number, i: any) => t + i.quantity, 0) || 0
   }
 
-  function getWeekTuesday(dateStr: string): Date {
+  function getWeekTuesday(dateStr: string) {
     const d = new Date(dateStr + 'T12:00:00')
     const day = d.getDay()
     let tueDiff = 2 - day
@@ -103,7 +63,7 @@ export default function MyOrdersPage() {
     return tue
   }
 
-  function getWeekKey(dateStr: string): string {
+  function getWeekKey(dateStr: string) {
     const tue = getWeekTuesday(dateStr)
     const mon = new Date(tue)
     mon.setDate(tue.getDate() + 6)
@@ -111,28 +71,23 @@ export default function MyOrdersPage() {
     return `${fmt(tue)}–${fmt(mon)}`
   }
 
-  function isEditable(dateStr: string): boolean {
+  function isEditable(dateStr: string) {
     const tue = getWeekTuesday(dateStr)
-    const cutoffSunday = new Date(tue)
-    cutoffSunday.setDate(tue.getDate() - 2)
-    cutoffSunday.setHours(12, 0, 0, 0)
-    return new Date() < cutoffSunday
+    const cutoff = new Date(tue)
+    cutoff.setDate(tue.getDate() - 2)
+    cutoff.setHours(12, 0, 0, 0)
+    return new Date() < cutoff
   }
 
-  function getEditUrl(dateStr: string): string {
-    const tue = getWeekTuesday(dateStr)
-    const tueStr = tue.toISOString().split('T')[0]
-    return `/order?tue=${tueStr}`
+  function getEditUrl(dateStr: string) {
+    return '/order?tue=' + getWeekTuesday(dateStr).toISOString().split('T')[0]
   }
 
-  function toggleWeek(weekKey: string) {
+  function toggleWeek(key: string) {
     setExpandedWeeks(prev => {
       const next = new Set(prev)
-      if (next.has(weekKey)) {
-        next.delete(weekKey)
-      } else {
-        next.add(weekKey)
-      }
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
@@ -143,9 +98,7 @@ export default function MyOrdersPage() {
     if (!grouped[key]) grouped[key] = []
     grouped[key].push(o)
   })
-  Object.keys(grouped).forEach(key => {
-    grouped[key].sort((a, b) => a.delivery_date.localeCompare(b.delivery_date))
-  })
+  Object.keys(grouped).forEach(key => grouped[key].sort((a, b) => a.delivery_date.localeCompare(b.delivery_date)))
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
@@ -153,7 +106,6 @@ export default function MyOrdersPage() {
     <div>
       <h1>My Orders</h1>
       <p className="page-subtitle">Your submitted orders by week.</p>
-
       {orders.length === 0 ? (
         <p style={{ color: 'var(--gray-500)', marginTop: 24 }}>
           No orders yet.{' '}
@@ -166,77 +118,45 @@ export default function MyOrdersPage() {
             const editable = weekOrders.some(o => isEditable(o.delivery_date))
             const totalForWeek = weekOrders.reduce((t, o) => t + totalLoaves(o), 0)
             const editUrl = getEditUrl(weekOrders[0].delivery_date)
-
             return (
-              <div key={weekLabel} style={{
-                border: '1px solid var(--gray-200)',
-                borderRadius: 8,
-                marginBottom: 8,
-                overflow: 'hidden',
-              }}>
-                <div
-                  onClick={() => toggleWeek(weekLabel)}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '12px 16px',
-                    cursor: 'pointer',
-                    background: isExpanded ? 'var(--gray-50)' : '#fff',
-                    userSelect: 'none' as const,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ fontSize: 13, color: 'var(--gray-400)' }}>
+              <div key={weekLabel} style={{ border: '1px solid var(--gray-200)', borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
+
+                {/* ── Week header row ── */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', background: '#fff' }}>
+                  <div
+                    onClick={() => toggleWeek(weekLabel)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1 }}
+                  >
+                    <span style={{ fontSize: 12, color: 'var(--gray-400)', lineHeight: 1 }}>
                       {isExpanded ? '▾' : '▸'}
                     </span>
-                    <span style={{ fontWeight: 600, fontSize: 15 }}>
-                      Week of {weekLabel}
-                    </span>
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>Week of {weekLabel}</span>
                     <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>
                       {totalForWeek} loaves · {weekOrders.length} {weekOrders.length === 1 ? 'delivery' : 'deliveries'}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {editable && (
-                      
-                      <a  
+                  {editable && (
+                    
                       href={editUrl}
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--accent)',
-                          fontWeight: 500,
-                          textDecoration: 'none',
-                          padding: '3px 10px',
-                          border: '1px solid var(--accent)',
-                          borderRadius: 4,
-                          whiteSpace: 'nowrap' as const,
-                        }}
-                      >
-                        Edit order
-                      </a>
-                    )}
-                  </div>
+                      style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 500, textDecoration: 'none', padding: '4px 12px', border: '1px solid var(--accent)', borderRadius: 4, whiteSpace: 'nowrap', marginLeft: 16 }}
+                    >
+                      Edit order
+                    </a>
+                  )}
                 </div>
 
+                {/* ── Expanded deliveries ── */}
                 {isExpanded && (
-                  <div style={{ borderTop: '1px solid var(--gray-100)', padding: '12px 16px' }}>
-                    {weekOrders.map(order => {
+                  <div style={{ borderTop: '1px solid var(--gray-100)' }}>
+                    {weekOrders.map((order, idx) => {
                       const colors = statusColors(order.status)
                       return (
-                        <div key={order.id} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--gray-100)' }}>
+                        <div key={order.id} style={{ padding: '12px 16px', borderTop: idx > 0 ? '1px solid var(--gray-100)' : 'none' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <div style={{ fontWeight: 500, fontSize: 14 }}>
-                              {fmtDate(order.delivery_date)}
-                            </div>
+                            <div style={{ fontWeight: 500, fontSize: 14 }}>{fmtDate(order.delivery_date)}</div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>
-                                {totalLoaves(order)} loaves
-                              </span>
-                              <span style={{
-                                fontSize: 12, padding: '2px 8px', borderRadius: 4,
-                                whiteSpace: 'nowrap' as const, ...colors,
-                              }}>
+                              <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{totalLoaves(order)} loaves</span>
+                              <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap', ...colors }}>
                                 {statusLabel(order.status, order.is_par)}
                               </span>
                             </div>
@@ -246,20 +166,14 @@ export default function MyOrdersPage() {
                               {order.order_items?.map((item: any, i: number) => (
                                 <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
                                   <td style={{ padding: '3px 0', fontSize: 13 }}>{item.product.name}</td>
-                                  <td style={{ padding: '3px 0', fontSize: 12, color: 'var(--gray-500)' }}>
-                                    {item.sliced ? 'sliced' : ''}
-                                  </td>
-                                  <td style={{ padding: '3px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>
-                                    ×{item.quantity}
-                                  </td>
+                                  <td style={{ padding: '3px 0', fontSize: 12, color: 'var(--gray-500)' }}>{item.sliced ? 'sliced' : ''}</td>
+                                  <td style={{ padding: '3px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>×{item.quantity}</td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                           {order.customer_notes && (
-                            <p style={{ fontSize: 12, color: 'var(--gray-500)', margin: '8px 0 0 0' }}>
-                              Note: {order.customer_notes}
-                            </p>
+                            <p style={{ fontSize: 12, color: 'var(--gray-500)', margin: '8px 0 0 0' }}>Note: {order.customer_notes}</p>
                           )}
                         </div>
                       )
