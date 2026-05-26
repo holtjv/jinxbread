@@ -128,7 +128,7 @@ export default function MyOrdersPage() {
                     style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1 }}
                   >
                     <span style={{ fontSize: 12, color: 'var(--gray-400)', lineHeight: 1 }}>
-                      {isExpanded ? '▾' : '▸'}
+                      {isExpanded ? '∨' : '›'}
                     </span>
                     <span style={{ fontWeight: 600, fontSize: 15 }}>Week of {weekLabel}</span>
                     <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>
