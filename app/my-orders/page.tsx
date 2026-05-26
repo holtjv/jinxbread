@@ -168,7 +168,7 @@ export default function MyOrdersPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {editable && (
                       
-                        href={editUrl}
+                        <a href={editUrl}
                         style={{
                           fontSize: 13, fontWeight: 600, color: '#fff',
                           background: 'var(--accent)', textDecoration: 'none',
