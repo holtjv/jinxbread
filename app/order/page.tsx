@@ -1,9 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '../../lib/supabase'
 
-export default function OrderPage() {
+function OrderPageInner() {
+  const searchParams = useSearchParams()
+  const tueParam = searchParams.get('tue')
+
   const [products, setProducts] = useState<any[]>([])
   const [deliveryWindows, setDeliveryWindows] = useState<any[]>([])
   const [customerPrices, setCustomerPrices] = useState<Record<string, number>>({})
@@ -17,18 +21,20 @@ export default function OrderPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [step, setStep] = useState<'order' | 'confirm'>('order')
-  const [weekOffset, setWeekOffset] = useState(0) // 0 = next orderable week, 1 = week after, etc.
+  const [weekOffset, setWeekOffset] = useState(0)
   const supabase = createClient()
-
-  // ── Date helpers ──────────────────────────────────────────────
 
   function isPastCutoff(): boolean {
     const now = new Date()
     return now.getDay() === 0 && now.getHours() >= 12
   }
 
-  // Base tuesday = the next upcoming Tuesday (or following if past cutoff)
   function getBaseTuesday(): Date {
+    if (tueParam) {
+      const d = new Date(tueParam + 'T12:00:00')
+      d.setHours(0, 0, 0, 0)
+      return d
+    }
     const today = new Date()
     const day = today.getDay()
     let tueDiff = 2 - day
@@ -40,7 +46,6 @@ export default function OrderPage() {
     return tue
   }
 
-  // Tuesday for the currently selected week
   function getSelectedTuesday(): Date {
     const base = getBaseTuesday()
     const tue = new Date(base)
@@ -78,12 +83,6 @@ export default function OrderPage() {
     return sunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   }
 
-  function isSelectedWeekEditable(): boolean {
-    // Week 0 is always open (cutoff is handled by auto-advance)
-    // Future weeks are always open
-    return true
-  }
-
   function getWeekStart(): string {
     return getSelectedTuesday().toISOString().split('T')[0]
   }
@@ -92,7 +91,6 @@ export default function OrderPage() {
     return getDeliveryDate('monday').toISOString().split('T')[0]
   }
 
-  // Does the selected week already have a submitted order?
   function getExistingOrderForWindow(windowId: string): any | null {
     const weekStart = getWeekStart()
     const weekEnd = getWeekEnd()
@@ -158,7 +156,6 @@ export default function OrderPage() {
       setDeliveryWindows(sortedWindows)
       setExistingOrders(ordersRes.data || [])
 
-      // Init additions at 0
       const initAdditions: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
       sortedWindows.forEach((w: any) => {
         initAdditions[w.id] = {}
@@ -168,32 +165,32 @@ export default function OrderPage() {
       })
       setAdditions(initAdditions)
 
-      // Auto-advance to next week if current orderable week already has orders
-      // We need to check after setting existingOrders, so we do it inline here
-      const baseTue = (() => {
-        const today = new Date()
-        const day = today.getDay()
-        let tueDiff = 2 - day
-        if (tueDiff <= 0) tueDiff += 7
-        if (today.getDay() === 0 && today.getHours() >= 12) tueDiff += 7
-        const tue = new Date(today)
-        tue.setDate(today.getDate() + tueDiff)
-        tue.setHours(0, 0, 0, 0)
-        return tue
-      })()
-      const baseWeekStart = baseTue.toISOString().split('T')[0]
-      const baseWeekEnd = new Date(new Date(baseTue).setDate(baseTue.getDate() + 6)).toISOString().split('T')[0]
-      const hasOrderThisWeek = (ordersRes.data || []).some((o: any) =>
-        o.delivery_date >= baseWeekStart && o.delivery_date <= baseWeekEnd
-      )
-      if (hasOrderThisWeek) setWeekOffset(1)
+      // Only auto-advance if no tue param was passed
+      if (!tueParam) {
+        const baseTue = (() => {
+          const today = new Date()
+          const day = today.getDay()
+          let tueDiff = 2 - day
+          if (tueDiff <= 0) tueDiff += 7
+          if (today.getDay() === 0 && today.getHours() >= 12) tueDiff += 7
+          const tue = new Date(today)
+          tue.setDate(today.getDate() + tueDiff)
+          tue.setHours(0, 0, 0, 0)
+          return tue
+        })()
+        const baseWeekStart = baseTue.toISOString().split('T')[0]
+        const baseWeekEnd = new Date(new Date(baseTue).setDate(baseTue.getDate() + 6)).toISOString().split('T')[0]
+        const hasOrderThisWeek = (ordersRes.data || []).some((o: any) =>
+          o.delivery_date >= baseWeekStart && o.delivery_date <= baseWeekEnd
+        )
+        if (hasOrderThisWeek) setWeekOffset(1)
+      }
 
       setLoading(false)
     }
     load()
   }, [])
 
-  // When week changes, pre-populate additions from existing order if present
   useEffect(() => {
     if (!products.length || !deliveryWindows.length) return
 
@@ -378,7 +375,6 @@ export default function OrderPage() {
     thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun'
   }
 
-  // ── CONFIRM STEP ──────────────────────────────────────────────
   if (step === 'confirm') {
     return (
       <div>
@@ -459,24 +455,18 @@ export default function OrderPage() {
     )
   }
 
-  // ── ORDER STEP ────────────────────────────────────────────────
   return (
     <div>
       <h1 style={{ marginBottom: 4 }}>Place an Order</h1>
 
-      {/* Week selector */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
         <button
           onClick={() => setWeekOffset(o => Math.max(0, o - 1))}
           disabled={weekOffset === 0}
           style={{
-            background: 'none',
-            border: '1px solid var(--gray-200)',
-            borderRadius: 6,
-            padding: '6px 12px',
-            cursor: weekOffset === 0 ? 'default' : 'pointer',
-            color: weekOffset === 0 ? 'var(--gray-300)' : 'var(--gray-700)',
-            fontSize: 16,
+            background: 'none', border: '1px solid var(--gray-200)', borderRadius: 6,
+            padding: '6px 12px', cursor: weekOffset === 0 ? 'default' : 'pointer',
+            color: weekOffset === 0 ? 'var(--gray-300)' : 'var(--gray-700)', fontSize: 16,
           }}
         >
           ‹
@@ -491,37 +481,23 @@ export default function OrderPage() {
           onClick={() => setWeekOffset(o => Math.min(3, o + 1))}
           disabled={weekOffset === 3}
           style={{
-            background: 'none',
-            border: '1px solid var(--gray-200)',
-            borderRadius: 6,
-            padding: '6px 12px',
-            cursor: weekOffset === 3 ? 'default' : 'pointer',
-            color: weekOffset === 3 ? 'var(--gray-300)' : 'var(--gray-700)',
-            fontSize: 16,
+            background: 'none', border: '1px solid var(--gray-200)', borderRadius: 6,
+            padding: '6px 12px', cursor: weekOffset === 3 ? 'default' : 'pointer',
+            color: weekOffset === 3 ? 'var(--gray-300)' : 'var(--gray-700)', fontSize: 16,
           }}
         >
           ›
         </button>
         {isEditing && (
-          <span style={{
-            fontSize: 12,
-            padding: '3px 10px',
-            borderRadius: 4,
-            background: '#cce5ff',
-            color: '#004085',
-          }}>
+          <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 4, background: '#cce5ff', color: '#004085' }}>
             Order submitted — editing
           </span>
         )}
       </div>
 
-      {/* Standing Order summary */}
       <div style={{
-        background: 'var(--gray-50)',
-        border: '1px solid var(--gray-200)',
-        borderRadius: 8,
-        padding: 16,
-        marginBottom: 32,
+        background: 'var(--gray-50)', border: '1px solid var(--gray-200)',
+        borderRadius: 8, padding: 16, marginBottom: 32,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: hasAnyPar() ? 12 : 0 }}>
           <h2 style={{ fontSize: 15, margin: 0 }}>Standing Order</h2>
@@ -529,7 +505,6 @@ export default function OrderPage() {
             Edit standing order →
           </a>
         </div>
-
         {!hasAnyPar() ? (
           <p style={{ color: 'var(--gray-500)', fontSize: 13, margin: 0 }}>
             No standing order set.{' '}
@@ -576,7 +551,6 @@ export default function OrderPage() {
         )}
       </div>
 
-      {/* Additional items */}
       <h2 style={{ fontSize: 15, marginBottom: 8 }}>
         {isEditing ? 'Edit additional items' : 'Additional items this week'}
       </h2>
@@ -622,16 +596,12 @@ export default function OrderPage() {
                         placeholder="0"
                         onChange={e => updateAddition(w.id, p.id, 'quantity', e.target.value)}
                         style={{
-                          width: 54,
-                          padding: '6px',
+                          width: 54, padding: '6px',
                           border: `1px solid ${hasValue ? 'var(--accent)' : 'var(--gray-200)'}`,
-                          borderRadius: 4,
-                          textAlign: 'center',
-                          fontSize: 14,
+                          borderRadius: 4, textAlign: 'center', fontSize: 14,
                           color: 'var(--gray-900)',
                           background: hasValue ? 'var(--accent-light, #f0f7ff)' : 'var(--gray-50)',
-                          outline: 'none',
-                          appearance: 'textfield',
+                          outline: 'none', appearance: 'textfield' as any,
                         }}
                       />
                       {p.can_be_sliced && hasValue && (
@@ -675,13 +645,8 @@ export default function OrderPage() {
           placeholder="e.g. back door delivery, skip the rye this week..."
           rows={3}
           style={{
-            width: '100%',
-            padding: 10,
-            border: '1px solid var(--gray-200)',
-            borderRadius: 6,
-            fontSize: 14,
-            color: 'var(--gray-900)',
-            resize: 'vertical',
+            width: '100%', padding: 10, border: '1px solid var(--gray-200)',
+            borderRadius: 6, fontSize: 14, color: 'var(--gray-900)', resize: 'vertical',
           }}
         />
       </div>
@@ -704,5 +669,13 @@ export default function OrderPage() {
         </button>
       </div>
     </div>
+  )
+}
+
+export default function OrderPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 40 }}>Loading...</div>}>
+      <OrderPageInner />
+    </Suspense>
   )
 }
