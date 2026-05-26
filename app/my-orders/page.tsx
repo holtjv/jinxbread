@@ -204,7 +204,7 @@ export default function MyOrdersPage() {
                     {editable && (
                       
                         href={editUrl}
-                        oonClick={(e: React.MouseEvent) => e.stopPropagation()}
+                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
                         style={{
                           fontSize: 12,
                           color: 'var(--accent)',
