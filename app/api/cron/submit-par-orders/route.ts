@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { Resend } from 'resend'
 
 // Runs at 18:00 UTC Sunday = 13:00 Central (CDT, UTC-5)
 // NOTE: adjust to 19:00 UTC during CST (UTC-6) Nov-Mar
@@ -9,9 +10,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+const resend = new Resend(process.env.RESEND_API_KEY)
+
 const DAY_OF_WEEK_TO_OFFSET: Record<string, number> = {
-  // Offsets from Sunday (day cron runs) to the next occurrence of that day
-  // Delivery window is Tue–Mon. Cron runs Sunday.
   monday:    8,
   tuesday:   2,
   wednesday: 3,
@@ -28,6 +29,112 @@ function getDeliveryDate(dayOfWeek: string, fromDate: Date): string {
   return d.toISOString().split('T')[0]
 }
 
+function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string; weekRange: string; cutoffString: string } {
+  const tue = new Date(fromDate)
+  tue.setUTCDate(fromDate.getUTCDate() + DAY_OF_WEEK_TO_OFFSET.tuesday)
+  const mon = new Date(fromDate)
+  mon.setUTCDate(fromDate.getUTCDate() + DAY_OF_WEEK_TO_OFFSET.monday)
+
+  const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const weekRange = `${fmt(tue)}–${fmt(mon)}`
+  const weekStart = tue.toISOString().split('T')[0]
+  const weekEnd = mon.toISOString().split('T')[0]
+
+  // Cutoff is the Sunday the cron runs on
+  const cutoffString = fromDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+
+  return { weekStart, weekEnd, weekRange, cutoffString }
+}
+
+async function sendParConfirmation(
+  customer: { id: string; name: string; email: string; contact_name?: string },
+  weekStart: string,
+  weekEnd: string,
+  weekRange: string,
+  cutoffString: string
+) {
+  const { data: orders } = await supabase
+    .from('orders')
+    .select(`
+      id, delivery_date, is_par,
+      delivery_window:delivery_windows (label, day_of_week),
+      order_items (
+        quantity, sliced,
+        product:products (name, sku)
+      )
+    `)
+    .eq('customer_id', customer.id)
+    .gte('delivery_date', weekStart)
+    .lte('delivery_date', weekEnd)
+    .order('delivery_date', { ascending: true })
+
+  if (!orders || orders.length === 0) return
+
+  const firstName = (customer as any).contact_name?.split(' ')[0] || customer.name
+
+  const orderRowsHtml = orders.map((order: any) => {
+    const dateStr = new Date(order.delivery_date + 'T12:00:00').toLocaleDateString('en-US', {
+      weekday: 'long', month: 'long', day: 'numeric'
+    })
+    const itemRows = order.order_items?.map((item: any) =>
+      `<tr>
+        <td style="padding: 4px 0; font-size: 13px; color: #444;">${item.product.name}${item.sliced ? ' <span style="color:#999">(sliced)</span>' : ''}</td>
+        <td style="padding: 4px 0; font-size: 13px; text-align: right; font-weight: 600;">×${item.quantity}</td>
+      </tr>`
+    ).join('')
+    const total = order.order_items?.reduce((t: number, i: any) => t + i.quantity, 0) || 0
+
+    return `
+      <div style="margin-bottom: 24px;">
+        <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px; color: #1a1a1a;">${dateStr}</div>
+        <table style="width: 100%; border-collapse: collapse; border-top: 1px solid #eee;">
+          <tbody>${itemRows}</tbody>
+          <tfoot>
+            <tr style="border-top: 1px solid #eee;">
+              <td style="padding: 6px 0; font-size: 12px; color: #999;">Total</td>
+              <td style="padding: 6px 0; font-size: 13px; text-align: right; font-weight: 700;">${total} loaves</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `
+  }).join('')
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
+  <img src="https://jinxbread.vercel.app/logo.png" alt="Jinx Bread" style="width: 80px; height: auto; margin-bottom: 24px;" />
+  <p style="color: #555; margin: 0 0 12px 0;">Hi ${firstName},</p>
+  <p style="color: #555; margin: 0 0 20px 0;">
+    Your standing order for <strong>${weekRange}</strong> has been automatically submitted.
+  </p>
+  <div style="background: #f0f7ff; border-left: 3px solid #2563eb; padding: 12px 16px; margin-bottom: 28px; border-radius: 0 6px 6px 0;">
+    <p style="margin: 0; font-size: 14px; font-weight: 700; color: #1a1a1a;">
+      You may edit this order until ${cutoffString} at noon.
+    </p>
+  </div>
+  ${orderRowsHtml}
+  <p style="margin: 28px 0;">
+    <a href="https://jinxbread.vercel.app/my-orders"
+       style="display: inline-block; background: #1a1a1a; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px;">
+      View or edit your order
+    </a>
+  </p>
+  <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
+  <p style="color: #bbb; font-size: 12px; margin: 0;">Jinx Bread · Austin, TX · Reply to this email with any questions.</p>
+</body>
+</html>
+`
+
+  await resend.emails.send({
+    from: 'Jinx Bread <orders@jinxbread.com>',
+    to: customer.email,
+    subject: `Your standing order for ${weekRange} has been submitted`,
+    html,
+  })
+}
+
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -35,6 +142,7 @@ export async function GET(request: Request) {
   }
 
   const now = new Date()
+  const { weekStart, weekEnd, weekRange, cutoffString } = getWeekRange(now)
 
   const { data: windows, error: windowsError } = await supabase
     .from('delivery_windows')
@@ -42,7 +150,6 @@ export async function GET(request: Request) {
     .eq('active', true)
 
   if (windowsError) {
-    console.error('Error fetching delivery windows:', windowsError)
     return NextResponse.json({ error: windowsError.message }, { status: 500 })
   }
 
@@ -51,7 +158,6 @@ export async function GET(request: Request) {
     .select('customer_id')
 
   if (parError) {
-    console.error('Error fetching par customers:', parError)
     return NextResponse.json({ error: parError.message }, { status: 500 })
   }
 
@@ -63,20 +169,22 @@ export async function GET(request: Request) {
 
   const { data: customers, error: customersError } = await supabase
     .from('customers')
-    .select('id, name, email')
+    .select('id, name, email, contact_name')
     .in('id', customerIds)
     .eq('active', true)
 
   if (customersError) {
-    console.error('Error fetching customers:', customersError)
     return NextResponse.json({ error: customersError.message }, { status: 500 })
   }
 
   let created = 0
   let skipped = 0
   const errors: string[] = []
+  const emailedCustomers = new Set<string>()
 
   for (const customer of customers || []) {
+    let customerCreated = 0
+
     for (const window of windows || []) {
       const deliveryDate = getDeliveryDate(window.day_of_week, now)
 
@@ -105,9 +213,7 @@ export async function GET(request: Request) {
         continue
       }
 
-      if (!pars || pars.length === 0) {
-        continue
-      }
+      if (!pars || pars.length === 0) continue
 
       const { data: order, error: orderError } = await supabase
         .from('orders')
@@ -147,10 +253,21 @@ export async function GET(request: Request) {
       }
 
       created++
+      customerCreated++
+    }
+
+    // Send one confirmation email per customer if any orders were created
+    if (customerCreated > 0 && !emailedCustomers.has(customer.id)) {
+      try {
+        await sendParConfirmation(customer, weekStart, weekEnd, weekRange, cutoffString)
+        emailedCustomers.add(customer.id)
+      } catch (err: any) {
+        errors.push(`Email error for customer ${customer.id}: ${err.message}`)
+      }
     }
   }
 
-  console.log(`Par cron complete: ${created} orders created, ${skipped} skipped, ${errors.length} errors`)
+  console.log(`Par cron complete: ${created} orders created, ${skipped} skipped, ${errors.length} errors, ${emailedCustomers.size} emails sent`)
   if (errors.length > 0) console.error('Errors:', errors)
 
   return NextResponse.json({
@@ -158,5 +275,6 @@ export async function GET(request: Request) {
     created,
     skipped,
     errors,
+    emailed: emailedCustomers.size,
   })
 }
