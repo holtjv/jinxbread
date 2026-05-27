@@ -30,20 +30,29 @@ function getDeliveryDate(dayOfWeek: string, fromDate: Date): string {
 }
 
 function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string; weekRange: string; cutoffString: string } {
+  // Find the next Tuesday from fromDate
+  const day = fromDate.getUTCDay()
+  let tueDiff = 2 - day
+  if (tueDiff <= 0) tueDiff += 7
   const tue = new Date(fromDate)
-  tue.setUTCDate(fromDate.getUTCDate() + DAY_OF_WEEK_TO_OFFSET.tuesday)
-  const mon = new Date(fromDate)
-  mon.setUTCDate(fromDate.getUTCDate() + DAY_OF_WEEK_TO_OFFSET.monday)
+  tue.setUTCDate(fromDate.getUTCDate() + tueDiff)
+
+  const mon = new Date(tue)
+  mon.setUTCDate(tue.getUTCDate() + 6)
+
+  // Cutoff is the Sunday before that Tuesday
+  const cutoffSun = new Date(tue)
+  cutoffSun.setUTCDate(tue.getUTCDate() - 2)
 
   const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  const weekRange = `${fmt(tue)}–${fmt(mon)}`
-  const weekStart = tue.toISOString().split('T')[0]
-  const weekEnd = mon.toISOString().split('T')[0]
+  const fmtFull = (d: Date) => d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
-  // Cutoff is the Sunday the cron runs on
-  const cutoffString = fromDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-
-  return { weekStart, weekEnd, weekRange, cutoffString }
+  return {
+    weekStart: tue.toISOString().split('T')[0],
+    weekEnd: mon.toISOString().split('T')[0],
+    weekRange: `${fmt(tue)}–${fmt(mon)}`,
+    cutoffString: fmtFull(cutoffSun),
+  }
 }
 
 async function sendParConfirmation(
