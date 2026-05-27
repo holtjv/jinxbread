@@ -361,8 +361,24 @@ function OrderPageInner() {
       }
     }
 
-    window.location.href = `/order/confirmation?week=${encodeURIComponent(getWeekRange())}`
-  }
+// Send confirmation email (fire and forget — don't block redirect)
+    const cutoffSunday = getSelectedSunday()
+    const cutoffStr = cutoffSunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+
+    fetch('/api/send-confirmation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer_id: customerId,
+        week_start: getWeekStart(),
+        week_end: getWeekEnd(),
+        week_range: getWeekRange(),
+        cutoff_string: cutoffStr,
+        is_editing: isEditing,
+      }),
+    }).catch(err => console.error('Confirmation email error:', err))
+
+    window.location.href = `/order/confirmation?week=${encodeURIComponent(getWeekRange())}`  }
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
