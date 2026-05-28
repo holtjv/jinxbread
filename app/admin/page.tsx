@@ -16,7 +16,7 @@ const EMPTY_CUSTOMER = {
 
 const EMPTY_PRODUCT = {
   name: '', sku: '', price_cents: '', unit_label: 'loaf',
-  can_be_sliced: false, active: true, sort_order: '',
+  can_be_sliced: false, active: true, sort_order: '', minimum_quantity: '10',
 }
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
@@ -53,21 +53,18 @@ export default function AdminPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null)
 
-  // Customer form
   const [editingCustomer, setEditingCustomer] = useState<any | null>(null)
   const [customerForm, setCustomerForm] = useState<any>(EMPTY_CUSTOMER)
   const [savingCustomer, setSavingCustomer] = useState(false)
   const [customerError, setCustomerError] = useState<string | null>(null)
   const [customerSuccess, setCustomerSuccess] = useState<string | null>(null)
 
-  // Product form
   const [editingProduct, setEditingProduct] = useState<any | null>(null)
   const [productForm, setProductForm] = useState<any>(EMPTY_PRODUCT)
   const [savingProduct, setSavingProduct] = useState(false)
   const [productError, setProductError] = useState<string | null>(null)
   const [productSuccess, setProductSuccess] = useState<string | null>(null)
 
-  // User form
   const [userForm, setUserForm] = useState({ email: '', customer_id: '', is_admin: false })
   const [inviting, setInviting] = useState(false)
   const [userError, setUserError] = useState<string | null>(null)
@@ -118,7 +115,7 @@ export default function AdminPage() {
       `).order('delivery_date', { ascending: true }),
       supabase.from('customers').select('id, name').eq('active', true).order('name'),
       supabase.from('customers').select('*').order('name'),
-      supabase.from('products').select('id, name, sku, price_cents, unit_label').eq('active', true).order('sort_order'),
+      supabase.from('products').select('id, name, sku, price_cents, unit_label, minimum_quantity').eq('active', true).order('sort_order'),
       supabase.from('products').select('*').order('sort_order'),
       supabase.from('customer_products').select('customer_id, product_id, price_cents'),
       supabase.from('delivery_windows').select('*').eq('active', true).order('sort_order'),
@@ -151,7 +148,6 @@ export default function AdminPage() {
     setPrices(map)
   }, [selectedCustomerId, customerProducts])
 
-  // ── Orders tab ────────────────────────────────────────────────
   const dates = [...new Set(orders.map((o: any) => o.delivery_date))].sort()
   const dateOrders = orders.filter((o: any) => o.delivery_date === selectedDate)
   const totals: Record<string, any> = {}
@@ -166,18 +162,11 @@ export default function AdminPage() {
 
   async function handleStatusChange(orderId: string, newStatus: OrderStatus) {
     setUpdatingStatus(orderId)
-    const { error } = await supabase
-      .from('orders')
-      .update({ status: newStatus })
-      .eq('id', orderId)
-
-    if (!error) {
-      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
-    }
+    const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId)
+    if (!error) setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
     setUpdatingStatus(null)
   }
 
-  // ── This Week tab ─────────────────────────────────────────────
   const { tuesday, monday, sunday } = getUpcomingWeek()
   const thisWeekOrders = orders.filter((o: any) => {
     const d = new Date(o.delivery_date + 'T12:00:00')
@@ -191,7 +180,6 @@ export default function AdminPage() {
   const thisWeekCustomerIds = [...new Set(thisWeekOrders.map((o: any) => o.customer_id))]
   const thisWeekCustomers = customers.filter(c => thisWeekCustomerIds.includes(c.id))
 
-  // ── Pricing tab ───────────────────────────────────────────────
   async function handleSavePrices() {
     if (!selectedCustomerId) return
     setSavingPrices(true)
@@ -212,7 +200,6 @@ export default function AdminPage() {
     setTimeout(() => setPriceSaved(false), 4000)
   }
 
-  // ── Customers tab ─────────────────────────────────────────────
   function startEditCustomer(c: any) {
     setEditingCustomer(c)
     setCustomerForm({
@@ -258,7 +245,6 @@ export default function AdminPage() {
     setTimeout(() => setCustomerSuccess(null), 4000)
   }
 
-  // ── Products tab ──────────────────────────────────────────────
   function startEditProduct(p: any) {
     setEditingProduct(p)
     setProductForm({
@@ -266,6 +252,7 @@ export default function AdminPage() {
       price_cents: p.price_cents ? (p.price_cents / 100).toFixed(2) : '',
       unit_label: p.unit_label || 'loaf', can_be_sliced: p.can_be_sliced ?? false,
       active: p.active ?? true, sort_order: p.sort_order ?? '',
+      minimum_quantity: p.minimum_quantity ?? '10',
     })
     setProductError(null)
     setProductSuccess(null)
@@ -288,6 +275,7 @@ export default function AdminPage() {
       price_cents: productForm.price_cents ? Math.round(parseFloat(productForm.price_cents) * 100) : null,
       unit_label: productForm.unit_label.trim() || 'loaf', can_be_sliced: productForm.can_be_sliced,
       active: productForm.active, sort_order: productForm.sort_order !== '' ? parseInt(productForm.sort_order) : null,
+      minimum_quantity: productForm.minimum_quantity !== '' ? parseInt(productForm.minimum_quantity) : 10,
     }
     if (editingProduct === 'new') {
       const { error } = await supabase.from('products').insert(payload)
@@ -304,7 +292,6 @@ export default function AdminPage() {
     setTimeout(() => setProductSuccess(null), 4000)
   }
 
-  // ── Users tab ─────────────────────────────────────────────────
   async function handleInviteUser() {
     if (!userForm.email.trim()) { setUserError('Email is required'); return }
     if (!userForm.customer_id) { setUserError('Please select a customer'); return }
@@ -342,7 +329,6 @@ export default function AdminPage() {
     <div>
       <h1>Admin</h1>
 
-      {/* Tab bar */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 32, borderBottom: '2px solid var(--gray-200)', flexWrap: 'wrap' as const }}>
         {(['orders', 'thisweek', 'customers', 'products', 'users', 'pricing'] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
@@ -392,7 +378,6 @@ export default function AdminPage() {
                   </tbody>
                 </table>
               )}
-
               <h2>Orders ({dateOrders.length})</h2>
               {dateOrders.map((order: any) => {
                 const status = order.status as OrderStatus
@@ -402,24 +387,13 @@ export default function AdminPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <div>
                         <strong>{order.customer.name}</strong>
-                        {order.is_par && (
-                          <span style={{ fontSize: 11, color: 'var(--gray-400)', marginLeft: 8 }}>par</span>
-                        )}
+                        {order.is_par && <span style={{ fontSize: 11, color: 'var(--gray-400)', marginLeft: 8 }}>par</span>}
                       </div>
                       <select
                         value={order.status}
                         disabled={updatingStatus === order.id}
                         onChange={e => handleStatusChange(order.id, e.target.value as OrderStatus)}
-                        style={{
-                          fontSize: 12,
-                          padding: '3px 8px',
-                          borderRadius: 4,
-                          border: 'none',
-                          cursor: 'pointer',
-                          fontFamily: 'var(--font)',
-                          fontWeight: 500,
-                          ...colors,
-                        }}
+                        style={{ fontSize: 12, padding: '3px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', fontFamily: 'var(--font)', fontWeight: 500, ...colors }}
                       >
                         {Object.entries(STATUS_LABELS).map(([value, label]) => (
                           <option key={value} value={value}>{label}</option>
@@ -513,7 +487,6 @@ export default function AdminPage() {
             {customerSuccess && <span className="alert alert-success" style={{ margin: 0, padding: '6px 12px' }}>✓ {customerSuccess}</span>}
             <button onClick={startNewCustomer} className="btn btn-primary">+ Add customer</button>
           </div>
-
           {editingCustomer && (
             <div style={{ border: '1px solid var(--gray-200)', borderRadius: 8, padding: 24, marginBottom: 32, background: 'var(--gray-50)' }}>
               <h2 style={{ marginTop: 0, marginBottom: 20 }}>{editingCustomer === 'new' ? 'New customer' : `Edit: ${editingCustomer.name}`}</h2>
@@ -566,13 +539,10 @@ export default function AdminPage() {
                 <button onClick={handleSaveCustomer} disabled={savingCustomer} className="btn btn-primary">
                   {savingCustomer ? 'Saving...' : 'Save customer'}
                 </button>
-                <button onClick={() => setEditingCustomer(null)} className="btn" style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}>
-                  Cancel
-                </button>
+                <button onClick={() => setEditingCustomer(null)} className="btn" style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}>Cancel</button>
               </div>
             </div>
           )}
-
           <table className="data-table">
             <thead>
               <tr><th>Name</th><th>Contact</th><th>Email</th><th>Type</th><th>Active</th><th></th></tr>
@@ -586,9 +556,7 @@ export default function AdminPage() {
                   <td style={{ color: 'var(--gray-500)' }}>{c.type}</td>
                   <td>{c.active ? '✓' : <span style={{ color: 'var(--gray-300)' }}>—</span>}</td>
                   <td style={{ textAlign: 'right' }}>
-                    <button onClick={() => startEditCustomer(c)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)' }}>
-                      Edit
-                    </button>
+                    <button onClick={() => startEditCustomer(c)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)' }}>Edit</button>
                   </td>
                 </tr>
               ))}
@@ -617,6 +585,10 @@ export default function AdminPage() {
                 <div style={formRowStyle}>
                   <label className="form-label">SKU *</label>
                   <input style={formFieldStyle} value={productForm.sku} onChange={e => setProductForm((p: any) => ({ ...p, sku: e.target.value }))} />
+                </div>
+                <div style={formRowStyle}>
+                  <label className="form-label">Min/week</label>
+                  <input type="number" min="0" style={formFieldStyle} value={productForm.minimum_quantity} onChange={e => setProductForm((p: any) => ({ ...p, minimum_quantity: e.target.value }))} />
                 </div>
                 <div style={formRowStyle}>
                   <label className="form-label">Default price ($)</label>
@@ -648,29 +620,26 @@ export default function AdminPage() {
                 <button onClick={handleSaveProduct} disabled={savingProduct} className="btn btn-primary">
                   {savingProduct ? 'Saving...' : 'Save product'}
                 </button>
-                <button onClick={() => setEditingProduct(null)} className="btn" style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}>
-                  Cancel
-                </button>
+                <button onClick={() => setEditingProduct(null)} className="btn" style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}>Cancel</button>
               </div>
             </div>
           )}
 
           <table className="data-table">
             <thead>
-              <tr><th>Name</th><th>SKU</th><th>Price</th><th>Sliceable</th><th>Active</th><th></th></tr>
+              <tr><th>Name</th><th>SKU</th><th>Min/week</th><th>Price</th><th>Sliceable</th><th>Active</th><th></th></tr>
             </thead>
             <tbody>
               {allProducts.map(p => (
                 <tr key={p.id}>
                   <td style={{ fontWeight: 500 }}>{p.name}</td>
                   <td style={{ color: 'var(--gray-500)' }}>{p.sku}</td>
+                  <td style={{ color: 'var(--gray-500)' }}>{p.minimum_quantity ?? 10}</td>
                   <td style={{ color: 'var(--gray-500)' }}>{p.price_cents ? `$${(p.price_cents / 100).toFixed(2)}` : '—'}</td>
                   <td>{p.can_be_sliced ? '✓' : '—'}</td>
                   <td>{p.active ? '✓' : <span style={{ color: 'var(--gray-300)' }}>—</span>}</td>
                   <td style={{ textAlign: 'right' }}>
-                    <button onClick={() => startEditProduct(p)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)' }}>
-                      Edit
-                    </button>
+                    <button onClick={() => startEditProduct(p)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)' }}>Edit</button>
                   </td>
                 </tr>
               ))}
@@ -682,9 +651,7 @@ export default function AdminPage() {
       {/* ── USERS TAB ── */}
       {tab === 'users' && (
         <div style={{ maxWidth: 480 }}>
-          <p className="page-subtitle">
-            Invite a contact at a customer to log in. They'll receive a magic link by email.
-          </p>
+          <p className="page-subtitle">Invite a contact at a customer to log in. They'll receive a magic link by email.</p>
           <div style={formRowStyle}>
             <label className="form-label">Email address</label>
             <input type="email" style={formFieldStyle} value={userForm.email}
