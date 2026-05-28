@@ -165,7 +165,6 @@ function OrderPageInner() {
       })
       setAdditions(initAdditions)
 
-      // Only auto-advance if no tue param was passed
       if (!tueParam) {
         const baseTue = (() => {
           const today = new Date()
@@ -249,6 +248,10 @@ function OrderPageInner() {
     return (parSlicedMap[windowId]?.[productId] || false) || (additions[windowId]?.[productId]?.sliced || false)
   }
 
+  function weeklyMergedTotal(productId: string): number {
+    return deliveryWindows.reduce((t, w) => t + mergedQty(w.id, productId), 0)
+  }
+
   function hasAnyPar(): boolean {
     return Object.values(parQtyMap).some(w => Object.values(w).some(q => q > 0))
   }
@@ -280,6 +283,21 @@ function OrderPageInner() {
     }
     if (totalMergedItems() === 0) {
       setError('No items in your order.')
+      return
+    }
+
+    // Validate minimums
+    const violations: string[] = []
+    products.forEach(p => {
+      const total = weeklyMergedTotal(p.id)
+      const min = p.minimum_quantity ?? 10
+      if (total > 0 && total < min) {
+        violations.push(`${p.name} requires a minimum of ${min}/week (you have ${total})`)
+      }
+    })
+    if (violations.length > 0) {
+      setError(violations.join(' · '))
+      setSubmitting(false)
       return
     }
 
@@ -361,7 +379,6 @@ function OrderPageInner() {
       }
     }
 
-// Send confirmation email (fire and forget — don't block redirect)
     const cutoffSunday = getSelectedSunday()
     const cutoffStr = cutoffSunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
@@ -378,7 +395,8 @@ function OrderPageInner() {
       }),
     }).catch(err => console.error('Confirmation email error:', err))
 
-    window.location.href = `/order/confirmation?week=${encodeURIComponent(getWeekRange())}`  }
+    window.location.href = `/order/confirmation?week=${encodeURIComponent(getWeekRange())}`
+  }
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
@@ -591,53 +609,61 @@ function OrderPageInner() {
             </tr>
           </thead>
           <tbody>
-            {products.map(p => (
-              <tr key={p.id} style={{ borderBottom: '1px solid var(--gray-100)' }}>
-                <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
-                  <div>{p.name}</div>
-                  {p.can_be_sliced && <div style={{ fontSize: 11, color: 'var(--gray-300)' }}>sliceable</div>}
-                </td>
-                <td style={{ padding: '6px 16px 6px 0', textAlign: 'right', fontSize: 13, color: 'var(--gray-400)' }}>
-                  {getPrice(p) ? `$${getPrice(p)}` : '—'}
-                </td>
-                {deliveryWindows.map(w => {
-                  const add = additions[w.id]?.[p.id]
-                  const hasValue = (add?.quantity || 0) > 0
-                  return (
-                    <td key={w.id} style={{ padding: '4px 8px', textAlign: 'center' }}>
-                      <input
-                        type="number"
-                        min="0"
-                        value={add?.quantity || ''}
-                        placeholder="0"
-                        onChange={e => updateAddition(w.id, p.id, 'quantity', e.target.value)}
-                        style={{
-                          width: 54, padding: '6px',
-                          border: `1px solid ${hasValue ? 'var(--accent)' : 'var(--gray-200)'}`,
-                          borderRadius: 4, textAlign: 'center', fontSize: 14,
-                          color: 'var(--gray-900)',
-                          background: hasValue ? 'var(--accent-light, #f0f7ff)' : 'var(--gray-50)',
-                          outline: 'none', appearance: 'textfield' as any,
-                        }}
-                      />
-                      {p.can_be_sliced && hasValue && (
-                        <div style={{ fontSize: 11, marginTop: 2 }}>
-                          <label style={{ color: 'var(--gray-500)', cursor: 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={add?.sliced || false}
-                              onChange={e => updateAddition(w.id, p.id, 'sliced', e.target.checked)}
-                              style={{ marginRight: 3 }}
-                            />
-                            sliced
-                          </label>
-                        </div>
-                      )}
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
+            {products.map(p => {
+              const weekTotal = weeklyMergedTotal(p.id)
+              const min = p.minimum_quantity ?? 10
+              const underMin = weekTotal > 0 && weekTotal < min
+              return (
+                <tr key={p.id} style={{ borderBottom: '1px solid var(--gray-100)' }}>
+                  <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
+                    <div>{p.name}</div>
+                    {p.can_be_sliced && <div style={{ fontSize: 11, color: 'var(--gray-300)' }}>sliceable</div>}
+                    <div style={{ fontSize: 11, color: underMin ? '#dc2626' : 'var(--gray-400)', marginTop: 1 }}>
+                      min {min}/week{weekTotal > 0 ? ` · ${weekTotal} ordered` : ''}
+                    </div>
+                  </td>
+                  <td style={{ padding: '6px 16px 6px 0', textAlign: 'right', fontSize: 13, color: 'var(--gray-400)' }}>
+                    {getPrice(p) ? `$${getPrice(p)}` : '—'}
+                  </td>
+                  {deliveryWindows.map(w => {
+                    const add = additions[w.id]?.[p.id]
+                    const hasValue = (add?.quantity || 0) > 0
+                    return (
+                      <td key={w.id} style={{ padding: '4px 8px', textAlign: 'center' }}>
+                        <input
+                          type="number"
+                          min="0"
+                          value={add?.quantity || ''}
+                          placeholder="0"
+                          onChange={e => updateAddition(w.id, p.id, 'quantity', e.target.value)}
+                          style={{
+                            width: 54, padding: '6px',
+                            border: `1px solid ${underMin ? '#dc2626' : hasValue ? 'var(--accent)' : 'var(--gray-200)'}`,
+                            borderRadius: 4, textAlign: 'center', fontSize: 14,
+                            color: 'var(--gray-900)',
+                            background: hasValue ? 'var(--accent-light, #f0f7ff)' : 'var(--gray-50)',
+                            outline: 'none', appearance: 'textfield' as any,
+                          }}
+                        />
+                        {p.can_be_sliced && hasValue && (
+                          <div style={{ fontSize: 11, marginTop: 2 }}>
+                            <label style={{ color: 'var(--gray-500)', cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={add?.sliced || false}
+                                onChange={e => updateAddition(w.id, p.id, 'sliced', e.target.checked)}
+                                style={{ marginRight: 3 }}
+                              />
+                              sliced
+                            </label>
+                          </div>
+                        )}
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
             <tr style={{ borderTop: '2px solid var(--gray-200)', fontWeight: 600 }}>
               <td style={{ padding: '8px 12px 8px 0', fontSize: 13, color: 'var(--gray-500)' }}>Additional total</td>
               <td></td>
@@ -674,6 +700,19 @@ function OrderPageInner() {
           onClick={() => {
             if (totalMergedItems() === 0) {
               setError('Please add at least one item before continuing.')
+              return
+            }
+            // Check minimums before proceeding to confirm step
+            const violations: string[] = []
+            products.forEach(p => {
+              const total = weeklyMergedTotal(p.id)
+              const min = p.minimum_quantity ?? 10
+              if (total > 0 && total < min) {
+                violations.push(`${p.name} requires a minimum of ${min}/week (you have ${total})`)
+              }
+            })
+            if (violations.length > 0) {
+              setError(violations.join(' · '))
               return
             }
             setError(null)
