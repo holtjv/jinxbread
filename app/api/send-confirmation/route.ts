@@ -9,6 +9,8 @@ const supabase = createClient(
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
+const BAKERY_EMAIL = 'jack@jinxbread.com'
+
 export async function POST(request: Request) {
   const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing } = await request.json()
 
@@ -16,7 +18,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
-  // Fetch customer
   const { data: customer } = await supabase
     .from('customers')
     .select('name, email, contact_name')
@@ -27,7 +28,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   }
 
-  // Fetch orders for this week with items
   const { data: orders } = await supabase
     .from('orders')
     .select(`
@@ -85,7 +85,7 @@ export async function POST(request: Request) {
     `
   }).join('')
 
-  const html = `
+  const customerHtml = `
 <!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
@@ -110,17 +110,45 @@ export async function POST(request: Request) {
 </html>
 `
 
-  const { error } = await resend.emails.send({
+  const bakerySubject = `${is_editing ? 'Updated' : isPar ? 'Standing' : 'New'} order — ${customer.name} · ${week_range}`
+
+  const bakeryHtml = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
+  <p style="margin: 0 0 4px 0; font-size: 16px; font-weight: 700;">${customer.name}</p>
+  <p style="margin: 0 0 20px 0; font-size: 13px; color: #888;">${is_editing ? 'Updated order' : isPar ? 'Standing order auto-submitted' : 'New order'} · ${week_range}</p>
+  ${orderRowsHtml}
+  <p style="margin: 24px 0 0 0;">
+    <a href="https://jinxbread.vercel.app/admin"
+       style="display: inline-block; background: #1a1a1a; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px;">
+      View in admin
+    </a>
+  </p>
+</body>
+</html>
+`
+
+  // Send customer email
+  const { error: customerError } = await resend.emails.send({
     from: 'Jinx Bread <orders@jinxbread.com>',
     to: customer.email,
     subject,
-    html,
+    html: customerHtml,
   })
 
-  if (error) {
-    console.error('Resend error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  if (customerError) {
+    console.error('Customer email error:', customerError)
+    return NextResponse.json({ error: customerError.message }, { status: 500 })
   }
+
+  // Send bakery notification (fire and forget — don't fail the request if this errors)
+  resend.emails.send({
+    from: 'Jinx Bread <orders@jinxbread.com>',
+    to: BAKERY_EMAIL,
+    subject: bakerySubject,
+    html: bakeryHtml,
+  }).catch(err => console.error('Bakery notification error:', err))
 
   return NextResponse.json({ success: true })
 }
