@@ -20,6 +20,7 @@ function OrderPageInner() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [allCustomers, setAllCustomers] = useState<any[]>([])
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
+  const [dataVersion, setDataVersion] = useState(0)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -30,6 +31,12 @@ function OrderPageInner() {
   function isPastCutoff(): boolean {
     const now = new Date()
     return now.getDay() === 0 && now.getHours() >= 12
+  }
+
+  function isCurrentWeekPastCutoff(): boolean {
+    const cutoff = getSelectedSunday()
+    cutoff.setHours(12, 0, 0, 0)
+    return new Date() > cutoff
   }
 
   function getBaseTuesday(): Date {
@@ -245,7 +252,7 @@ function OrderPageInner() {
     })?.customer_notes || '')
     setStep('order')
     setError(null)
-  }, [weekOffset, existingOrders, products, deliveryWindows, selectedCustomerId])
+  }, [weekOffset, existingOrders, products, deliveryWindows, selectedCustomerId, dataVersion])
 
   async function handleCustomerChange(newId: string) {
     const customer = allCustomers.find(c => c.id === newId)
@@ -256,6 +263,7 @@ function OrderPageInner() {
     setStep('order')
     setError(null)
     await loadCustomerData(newId, products, deliveryWindows)
+    setDataVersion(v => v + 1)
   }
 
   function getPriceCents(product: any): number | null {
@@ -467,6 +475,7 @@ function OrderPageInner() {
   const weekRange = getWeekRange()
   const cutoffString = getCutoffString()
   const isEditing = hasExistingOrderThisWeek()
+  const pastCutoff = isCurrentWeekPastCutoff()
   const weekTotal = orderWeekTotalCents()
 
   const dayShort: Record<string, string> = {
@@ -629,7 +638,11 @@ function OrderPageInner() {
         <div style={{ textAlign: 'center', minWidth: 160 }}>
           <div style={{ fontWeight: 600, fontSize: 15 }}>{weekRange}</div>
           <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>
-            {weekOffset === 0 ? `Closes ${cutoffString} at noon` : `Week ${weekOffset + 1} out`}
+            {pastCutoff && weekOffset === 0
+              ? 'Cutoff has passed'
+              : weekOffset === 0
+              ? `Closes ${cutoffString} at noon`
+              : `Week ${weekOffset + 1} out`}
           </div>
         </div>
         <button
@@ -643,9 +656,14 @@ function OrderPageInner() {
         >
           ›
         </button>
-        {isEditing && (
+        {isEditing && !pastCutoff && (
           <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 4, background: '#cce5ff', color: '#004085' }}>
-            Order submitted — editing
+            Order submitted
+          </span>
+        )}
+        {isEditing && pastCutoff && weekOffset === 0 && (
+          <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 4, background: '#f8d7da', color: '#721c24' }}>
+            Cutoff passed — order locked
           </span>
         )}
       </div>
@@ -758,17 +776,19 @@ function OrderPageInner() {
                           min="0"
                           value={add?.quantity || ''}
                           placeholder="0"
+                          disabled={pastCutoff && weekOffset === 0}
                           onChange={e => updateAddition(w.id, p.id, 'quantity', e.target.value)}
                           style={{
                             width: 54, padding: '6px',
                             border: `1px solid ${underMin ? '#dc2626' : hasValue ? 'var(--accent)' : 'var(--gray-200)'}`,
                             borderRadius: 4, textAlign: 'center', fontSize: 14,
                             color: 'var(--gray-900)',
-                            background: hasValue ? 'var(--accent-light, #f0f7ff)' : 'var(--gray-50)',
+                            background: pastCutoff && weekOffset === 0 ? 'var(--gray-100)' : hasValue ? 'var(--accent-light, #f0f7ff)' : 'var(--gray-50)',
                             outline: 'none', appearance: 'textfield' as any,
+                            cursor: pastCutoff && weekOffset === 0 ? 'not-allowed' : 'text',
                           }}
                         />
-                        {p.can_be_sliced && hasValue && (
+                        {p.can_be_sliced && hasValue && !(pastCutoff && weekOffset === 0) && (
                           <div style={{ fontSize: 11, marginTop: 2 }}>
                             <label style={{ color: 'var(--gray-500)', cursor: 'pointer' }}>
                               <input
@@ -814,10 +834,12 @@ function OrderPageInner() {
           value={notes}
           onChange={e => setNotes(e.target.value)}
           placeholder="e.g. back door delivery, skip the rye this week..."
+          disabled={pastCutoff && weekOffset === 0}
           rows={3}
           style={{
             width: '100%', padding: 10, border: '1px solid var(--gray-200)',
             borderRadius: 6, fontSize: 14, color: 'var(--gray-900)', resize: 'vertical',
+            background: pastCutoff && weekOffset === 0 ? 'var(--gray-100)' : '#fff',
           }}
         />
       </div>
@@ -825,31 +847,37 @@ function OrderPageInner() {
       {error && <p style={{ color: 'red', margin: '16px 0' }}>{error}</p>}
 
       <div style={{ marginTop: 24, marginBottom: 60 }}>
-        <button
-          onClick={() => {
-            if (totalMergedItems() === 0) {
-              setError('Please add at least one item before continuing.')
-              return
-            }
-            const violations: string[] = []
-            products.forEach(p => {
-              const total = weeklyMergedTotal(p.id)
-              const min = p.minimum_quantity ?? 10
-              if (total > 0 && total < min) {
-                violations.push(`${p.name} requires a minimum of ${min}/week (you have ${total})`)
+        {pastCutoff && weekOffset === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--gray-500)' }}>
+            The cutoff for this week has passed. Use the arrow to order for next week.
+          </p>
+        ) : (
+          <button
+            onClick={() => {
+              if (totalMergedItems() === 0) {
+                setError('Please add at least one item before continuing.')
+                return
               }
-            })
-            if (violations.length > 0) {
-              setError(violations.join(' · '))
-              return
-            }
-            setError(null)
-            setStep('confirm')
-          }}
-          className="btn btn-primary"
-        >
-          Review order ({totalMergedItems()} loaves) →
-        </button>
+              const violations: string[] = []
+              products.forEach(p => {
+                const total = weeklyMergedTotal(p.id)
+                const min = p.minimum_quantity ?? 10
+                if (total > 0 && total < min) {
+                  violations.push(`${p.name} requires a minimum of ${min}/week (you have ${total})`)
+                }
+              })
+              if (violations.length > 0) {
+                setError(violations.join(' · '))
+                return
+              }
+              setError(null)
+              setStep('confirm')
+            }}
+            className="btn btn-primary"
+          >
+            Review order ({totalMergedItems()} loaves) →
+          </button>
+        )}
       </div>
     </div>
   )
