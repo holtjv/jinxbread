@@ -221,10 +221,38 @@ function OrderPageInner() {
     setError(null)
   }, [weekOffset, existingOrders, products, deliveryWindows])
 
-  function getPrice(product: any) {
-    const cents = customerPrices[product.id] ?? product.price_cents
+  function getPriceCents(product: any): number | null {
+    return customerPrices[product.id] ?? product.price_cents ?? null
+  }
+
+  function getPrice(product: any): string | null {
+    const cents = getPriceCents(product)
     if (!cents) return null
     return (cents / 100).toFixed(2)
+  }
+
+  function fmtMoney(cents: number): string {
+    return '$' + (cents / 100).toFixed(2)
+  }
+
+  function weeklyLineTotalCents(product: any): number {
+    const cents = getPriceCents(product)
+    if (!cents) return 0
+    return cents * weeklyMergedTotal(product.id)
+  }
+
+  function orderWeekTotalCents(): number {
+    return products.reduce((t, p) => t + weeklyLineTotalCents(p), 0)
+  }
+
+  function windowLineTotalCents(windowId: string, product: any): number {
+    const cents = getPriceCents(product)
+    if (!cents) return 0
+    return cents * mergedQty(windowId, product.id)
+  }
+
+  function windowTotalCents(windowId: string): number {
+    return products.reduce((t, p) => t + windowLineTotalCents(windowId, p), 0)
   }
 
   function updateAddition(windowId: string, productId: string, field: 'quantity' | 'sliced', value: any) {
@@ -286,7 +314,6 @@ function OrderPageInner() {
       return
     }
 
-    // Validate minimums
     const violations: string[] = []
     products.forEach(p => {
       const total = weeklyMergedTotal(p.id)
@@ -403,6 +430,7 @@ function OrderPageInner() {
   const weekRange = getWeekRange()
   const cutoffString = getCutoffString()
   const isEditing = hasExistingOrderThisWeek()
+  const weekTotal = orderWeekTotalCents()
 
   const dayShort: Record<string, string> = {
     monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
@@ -418,48 +446,77 @@ function OrderPageInner() {
           {hasAnyPar() && ' Standing order quantities are included.'}
         </p>
 
-        {deliveryWindows.filter(w => colMergedTotal(w.id) > 0).map(w => (
-          <div key={w.id} style={{ marginBottom: 32 }}>
-            <h2 style={{ fontSize: 15, marginBottom: 8 }}>
-              {dayShort[w.day_of_week]}, {getDeliveryDate(w.day_of_week).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
-            </h2>
-            <table className="data-table" style={{ marginBottom: 0 }}>
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th className="center">Standing</th>
-                  <th className="center">Additional</th>
-                  <th className="center">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mergedOrderLines(w.id).map(p => (
-                  <tr key={p.id}>
-                    <td>
-                      <div>{p.name}</div>
-                      {mergedSliced(w.id, p.id) && <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>sliced</div>}
-                    </td>
-                    <td className="center" style={{ color: 'var(--gray-500)' }}>
-                      {parQtyMap[w.id]?.[p.id] || '—'}
-                    </td>
-                    <td className="center" style={{ color: 'var(--gray-500)' }}>
-                      {additions[w.id]?.[p.id]?.quantity || '—'}
-                    </td>
-                    <td className="center" style={{ fontWeight: 600 }}>
-                      {mergedQty(w.id, p.id)}
+        {deliveryWindows.filter(w => colMergedTotal(w.id) > 0).map(w => {
+          const winTotal = windowTotalCents(w.id)
+          return (
+            <div key={w.id} style={{ marginBottom: 32 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                <h2 style={{ fontSize: 15, margin: 0 }}>
+                  {dayShort[w.day_of_week]}, {getDeliveryDate(w.day_of_week).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                </h2>
+                {winTotal > 0 && (
+                  <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{fmtMoney(winTotal)}</span>
+                )}
+              </div>
+              <table className="data-table" style={{ marginBottom: 0 }}>
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th className="center">Standing</th>
+                    <th className="center">Additional</th>
+                    <th className="center">Total</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mergedOrderLines(w.id).map(p => {
+                    const lineCents = windowLineTotalCents(w.id, p)
+                    return (
+                      <tr key={p.id}>
+                        <td>
+                          <div>{p.name}</div>
+                          {mergedSliced(w.id, p.id) && <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>sliced</div>}
+                          {getPrice(p) && <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>${getPrice(p)} each</div>}
+                        </td>
+                        <td className="center" style={{ color: 'var(--gray-500)' }}>
+                          {parQtyMap[w.id]?.[p.id] || '—'}
+                        </td>
+                        <td className="center" style={{ color: 'var(--gray-500)' }}>
+                          {additions[w.id]?.[p.id]?.quantity || '—'}
+                        </td>
+                        <td className="center" style={{ fontWeight: 600 }}>
+                          {mergedQty(w.id, p.id)}
+                        </td>
+                        <td style={{ textAlign: 'right', fontSize: 13, color: 'var(--gray-600)' }}>
+                          {lineCents > 0 ? fmtMoney(lineCents) : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  <tr className="totals-row">
+                    <td>Total</td>
+                    <td className="center">{colParTotal(w.id) || '—'}</td>
+                    <td className="center">{colAddTotal(w.id) || '—'}</td>
+                    <td className="center">{colMergedTotal(w.id)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                      {winTotal > 0 ? fmtMoney(winTotal) : '—'}
                     </td>
                   </tr>
-                ))}
-                <tr className="totals-row">
-                  <td>Total</td>
-                  <td className="center">{colParTotal(w.id) || '—'}</td>
-                  <td className="center">{colAddTotal(w.id) || '—'}</td>
-                  <td className="center">{colMergedTotal(w.id)}</td>
-                </tr>
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
+
+        {weekTotal > 0 && (
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '14px 0', borderTop: '2px solid var(--gray-200)', marginBottom: 24,
+          }}>
+            <span style={{ fontWeight: 700, fontSize: 15 }}>Week total</span>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>{fmtMoney(weekTotal)}</span>
           </div>
-        ))}
+        )}
 
         {notes && (
           <p style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 24 }}>
@@ -606,6 +663,7 @@ function OrderPageInner() {
                   </div>
                 </th>
               ))}
+              <th style={{ textAlign: 'right', padding: '8px 0 8px 8px', minWidth: 70, color: 'var(--gray-400)', fontWeight: 'normal', fontSize: 13 }}>Week total</th>
             </tr>
           </thead>
           <tbody>
@@ -613,6 +671,7 @@ function OrderPageInner() {
               const weekTotal = weeklyMergedTotal(p.id)
               const min = p.minimum_quantity ?? 10
               const underMin = weekTotal > 0 && weekTotal < min
+              const lineTotal = weeklyLineTotalCents(p)
               return (
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--gray-100)' }}>
                   <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
@@ -661,6 +720,9 @@ function OrderPageInner() {
                       </td>
                     )
                   })}
+                  <td style={{ padding: '6px 0 6px 8px', textAlign: 'right', fontSize: 13, color: weekTotal > 0 ? 'var(--gray-700)' : 'var(--gray-300)' }}>
+                    {lineTotal > 0 ? fmtMoney(lineTotal) : '—'}
+                  </td>
                 </tr>
               )
             })}
@@ -672,6 +734,9 @@ function OrderPageInner() {
                   {colAddTotal(w.id) > 0 ? colAddTotal(w.id) : '—'}
                 </td>
               ))}
+              <td style={{ padding: '8px 0 8px 8px', textAlign: 'right', fontSize: 14, fontWeight: 700 }}>
+                {weekTotal > 0 ? fmtMoney(weekTotal) : '—'}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -702,7 +767,6 @@ function OrderPageInner() {
               setError('Please add at least one item before continuing.')
               return
             }
-            // Check minimums before proceeding to confirm step
             const violations: string[] = []
             products.forEach(p => {
               const total = weeklyMergedTotal(p.id)
