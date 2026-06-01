@@ -245,7 +245,7 @@ function OrderPageInner() {
     })?.customer_notes || '')
     setStep('order')
     setError(null)
-  }, [weekOffset, existingOrders, products, deliveryWindows])
+  }, [weekOffset, existingOrders, products, deliveryWindows, selectedCustomerId])
 
   async function handleCustomerChange(newId: string) {
     const customer = allCustomers.find(c => c.id === newId)
