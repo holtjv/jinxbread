@@ -760,7 +760,7 @@ function OrderPageInner() {
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--gray-100)' }}>
                   <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
                     <div>{p.name}</div>
-                    {p.can_be_sliced && <div style={{ fontSize: 11, color: 'var(--gray-300)' }}>sliceable</div>}
+                
                     <div style={{ fontSize: 11, color: underMin ? '#dc2626' : 'var(--gray-400)', marginTop: 1 }}>
                       min {min}/week{wkTotal > 0 ? ` · ${wkTotal} ordered` : ''}
                     </div>

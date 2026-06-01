@@ -113,7 +113,7 @@ export default function ParPage() {
                   <tr key={p.id} style={{ opacity: hasSaved ? 1 : 0.5 }}>
                     <td>
                       <div>{p.name}</div>
-                      {p.can_be_sliced && <div className="product-meta">sliceable</div>}
+                      
                       <div style={{ fontSize: 11, color: underMin ? '#dc2626' : 'var(--gray-400)', marginTop: 2 }}>min {min}/week{total > 0 ? ` · ${total} set` : ''}</div>
                     </td>
                     {deliveryWindows.map(w => {
