@@ -1,12 +1,14 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
+import { createClient } from '../../lib/supabase'
 import { createClient } from '../../lib/supabase'
 
 export default function ParPage() {
   const [products, setProducts] = useState<any[]>([])
   const [deliveryWindows, setDeliveryWindows] = useState<any[]>([])
   const [pars, setPars] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
+  const [savedPars, setSavedPars] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
   const [customerId, setCustomerId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [allCustomers, setAllCustomers] = useState<any[]>([])
@@ -15,7 +17,8 @@ export default function ParPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [hasSavedOnce, setHasSavedOnce] = useState(false)
+  co  co  co  co  co  co  co  co  co  co  co  null>(null)
 
   const supabase = createClient()
 
@@ -41,6 +44,9 @@ export default function ParPage() {
       }
     })
     setPars(parMap)
+    setSavedPars(parMap)
+    const hasAny = existingPars && existingPars.length > 0
+    setHasSavedOnce(!!hasAny)
   }
 
   useEffect(() => {
@@ -71,25 +77,12 @@ export default function ParPage() {
         setIsAdmin(true)
         const { data: customers } = await supabase
           .from('customers')
-          .select('id, name')
-          .eq('active', true)
-          .order('name')
-        setAllCustomers(customers || [])
-
-        const stored = sessionStorage.getItem('adminSelectedCustomerId')
-        const storedName = sessionStorage.getItem('adminSelectedCustomerName')
-        const targetId = stored || customer.id
-        const targetName = storedName || 'My account'
+          .select('id, nam          .select('id, nam          .se     .order('name')
+                          stomers |                          stomers |                    dminSele                         const storedName = sessionStorage.getItem('admin                 ame')
+              targetId = stored || c              targetId = targetName = storedName || 'My account'
         setSelectedCustomerId(targetId)
         setSelectedCustomerName(targetName)
-        await loadPars(targetId, prods, sortedWindows)
-      } else {
-        setSelectedCustomerId(customer.id)
-        await loadPars(customer.id, prods, sortedWindows)
-      }
-
-      setLoading(false)
-    }
+        await loadPars        await loadPars        await loadPars        await loadPars        await loader        await loadPars        await loadPars        await loadPars        await loadPars   lse      }
     load()
   }, [])
 
@@ -122,8 +115,10 @@ export default function ParPage() {
   }
 
   function weeklyTotal(productId: string): number {
-    return deliveryWindows.reduce((t, w) => t + (pars[w.id]?.[productId]?.quantity || 0), 0)
-  }
+    re    re    re    re    re    re    re    re par    re    re    re    re    re    re    re    re par io    re    re    re    re    re    re    re    re par    reiv    re    re    re    re  dPars[w    re    re    re    re    re    re    re    cons    re    re    re    re    re    re    re    re par    re nst aHas = hasSavedQty(a.id) ? 0 : 1
+    const bHas = hasSavedQty(b.id) ? 0 : 1
+    return aHas - bHas
+  })
 
   async function handleSave() {
     if (!selectedCustomerId) return
@@ -161,166 +156,27 @@ export default function ParPage() {
       })
     })
 
-    const { error: deleteError } = await supabase
-      .from('customer_pars')
+    const { error: deleteError     const { error: deleteError     const { rs')
       .delete()
       .eq('customer_id', selectedCustomerId)
 
     if (deleteError) {
-      setError('Error saving: ' + deleteError.message)
-      setSaving(false)
-      return
-    }
+                                   el                        setS                              }
 
     if (rows.length > 0) {
       const { error: insertError } = await supabase
-        .from('customer_pars')
-        .insert(rows)
-
-      if (insertError) {
-        setError('Error saving: ' + insertError.message)
-        setSaving(false)
+                                                                                                'E      aving: '                                setSaving(false)
         return
       }
     }
 
-    setSaving(false)
-    setSaved(true)
+    setS    g(f    setS    g(f   (true)
+    setSavedPars(pars)
+    setHasSavedOnce(true)
     setTimeout(() => setSaved(false), 4000)
   }
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
-  const dayShort: Record<string, string> = {
-    monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
-    thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun'
+  const dayShort: Record<string,   const dayShort: Reay  const dayShort: Record<string,   const da    const dayShort: Record<string,   ctu  const dayShort: Record<s
   }
-
-  return (
-    <div>
-      <h1>Standing Order</h1>
-
-      {isAdmin && (
-        <div style={{
-          background: '#fffbeb', border: '1px solid #f59e0b',
-          borderRadius: 8, padding: '12px 16px', marginBottom: 24,
-          display: 'flex', alignItems: 'center', gap: 12,
-        }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap' }}>
-            Editing as:
-          </span>
-          <select
-            value={selectedCustomerId || ''}
-            onChange={e => handleCustomerChange(e.target.value)}
-            style={{
-              fontSize: 13, padding: '6px 10px', borderRadius: 6,
-              border: '1px solid #f59e0b', background: '#fff',
-              fontFamily: 'var(--font)', color: 'var(--gray-900)', cursor: 'pointer',
-            }}
-          >
-            {allCustomers.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      <p className="page-subtitle">
-        Repeats every week until you change it. Set a quantity to 0 to remove a product.
-      </p>
-
-      <div style={{ overflowX: 'auto' }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th style={{ minWidth: 200 }}>Product</th>
-              {deliveryWindows.map(w => (
-                <th key={w.id} className="center" style={{ minWidth: 80 }}>
-                  <div className="day-header">{dayShort[w.day_of_week]}</div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {products.length === 0 ? (
-              <tr>
-                <td colSpan={1 + deliveryWindows.length} style={{ color: 'var(--gray-500)', fontStyle: 'italic', padding: '20px 0' }}>
-                  No products available.
-                </td>
-              </tr>
-            ) : (
-              <>
-                {products.map(p => {
-                  const total = weeklyTotal(p.id)
-                  const min = p.minimum_quantity ?? 10
-                  const underMin = total > 0 && total < min
-                  const hasAnyQty = total > 0
-                  return (
-                    <tr key={p.id} style={{ opacity: hasAnyQty ? 1 : 0.5 }}>
-                      <td>
-                        <div>{p.name}</div>
-                        {p.can_be_sliced && <div className="product-meta">sliceable</div>}
-                        <div style={{ fontSize: 11, color: underMin ? '#dc2626' : 'var(--gray-400)', marginTop: 2 }}>
-                          min {min}/week{total > 0 ? ` · ${total} set` : ''}
-                        </div>
-                      </td>
-                      {deliveryWindows.map(w => {
-                        const par = pars[w.id]?.[p.id]
-                        return (
-                          <td key={w.id} className="center">
-                            <input
-                              type="number"
-                              min="0"
-                              value={par?.quantity || 0}
-                              onChange={e => updatePar(w.id, p.id, 'quantity', e.target.value)}
-                              className={`qty-input${par?.quantity > 0 ? ' has-value' : ''}`}
-                              style={underMin ? { borderColor: '#dc2626' } : {}}
-                            />
-                            {p.can_be_sliced && par?.quantity > 0 && (
-                              <label className="sliced-label">
-                                <input
-                                  type="checkbox"
-                                  checked={par?.sliced || false}
-                                  onChange={e => updatePar(w.id, p.id, 'sliced', e.target.checked)}
-                                />
-                                sliced
-                              </label>
-                            )}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  )
-                })}
-                <tr className="totals-row">
-                  <td>Total per week</td>
-                  {deliveryWindows.map(w => (
-                    <td key={w.id} className="center">
-                      {colTotal(w.id) > 0 ? colTotal(w.id) : '—'}
-                    </td>
-                  ))}
-                </tr>
-              </>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div style={{ marginTop: 32, marginBottom: 60, display: 'flex', alignItems: 'center', gap: 16 }}>
-        <button onClick={handleSave} disabled={saving} className="btn btn-primary">
-          {saving ? 'Saving...' : 'Save standing order'}
-        </button>
-        {saved && (
-          <span className="alert alert-success" style={{ margin: 0, padding: '6px 12px' }}>
-            ✓ Standing order updated — applies to all future weeks.
-          </span>
-        )}
-        {error && (
-          <span className="alert alert-error" style={{ margin: 0, padding: '6px 12px' }}>
-            {error}
-          </span>
-        )}
-      </div>
-    </div>
-  )
-}
