@@ -263,8 +263,8 @@ function OrderPageInner() {
     setStep('order')
     setError(null)
     await loadCustomerData(newId, products, deliveryWindows)
-    setWeekOffset(0)
     setDataVersion(v => v + 1)
+  }
 
   function getPriceCents(product: any): number | null {
     return customerPrices[product.id] ?? product.price_cents ?? null
@@ -642,7 +642,9 @@ function OrderPageInner() {
               ? 'Cutoff has passed'
               : weekOffset === 0
               ? `Closes ${cutoffString} at noon`
-              : `Week ${weekOffset + 1} out`}
+              : weekOffset === 1
+              ? 'Next week'
+              : `${weekOffset} weeks out`}
           </div>
         </div>
         <button
