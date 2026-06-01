@@ -790,19 +790,7 @@ function OrderPageInner() {
                             cursor: pastCutoff && weekOffset === 0 ? 'not-allowed' : 'text',
                           }}
                         />
-                        {p.can_be_sliced && hasValue && !(pastCutoff && weekOffset === 0) && (
-                          <div style={{ fontSize: 11, marginTop: 2 }}>
-                            <label style={{ color: 'var(--gray-500)', cursor: 'pointer' }}>
-                              <input
-                                type="checkbox"
-                                checked={add?.sliced || false}
-                                onChange={e => updateAddition(w.id, p.id, 'sliced', e.target.checked)}
-                                style={{ marginRight: 3 }}
-                              />
-                              sliced
-                            </label>
-                          </div>
-                        )}
+                       
                       </td>
                     )
                   })}

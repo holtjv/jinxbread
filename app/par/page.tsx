@@ -121,7 +121,7 @@ export default function ParPage() {
                       return (
                         <td key={w.id} className="center">
                           <input type="number" min="0" value={par?.quantity || ''} placeholder="0" onFocus={e => e.target.select()} onChange={e => updatePar(w.id, p.id, 'quantity', e.target.value)} className={`qty-input${par?.quantity > 0 ? ' has-value' : ''}`} style={underMin ? { borderColor: '#dc2626' } : {}} />
-                          {p.can_be_sliced && par?.quantity > 0 && (<label className="sliced-label"><input type="checkbox" checked={par?.sliced || false} onChange={e => updatePar(w.id, p.id, 'sliced', e.target.checked)} />sliced</label>)}
+                          
                         </td>
                       )
                     })}
