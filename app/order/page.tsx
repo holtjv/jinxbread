@@ -17,6 +17,9 @@ function OrderPageInner() {
   const [existingOrders, setExistingOrders] = useState<any[]>([])
   const [notes, setNotes] = useState('')
   const [customerId, setCustomerId] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [allCustomers, setAllCustomers] = useState<any[]>([])
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -110,6 +113,42 @@ function OrderPageInner() {
     )
   }
 
+  async function loadCustomerData(targetId: string, prods: any[], windows: any[]) {
+    const [pricesRes, parsRes, ordersRes] = await Promise.all([
+      supabase.from('customer_products').select('product_id, price_cents').eq('customer_id', targetId),
+      supabase.from('customer_pars').select('product_id, delivery_window_id, quantity, sliced').eq('customer_id', targetId),
+      supabase.from('orders').select(`
+        id, delivery_date, delivery_window_id, status, is_par, customer_notes,
+        order_items (product_id, quantity, sliced)
+      `).eq('customer_id', targetId),
+    ])
+
+    const priceMap: Record<string, number> = {}
+    pricesRes.data?.forEach((p: any) => { priceMap[p.product_id] = p.price_cents })
+    setCustomerPrices(priceMap)
+
+    const pqMap: Record<string, Record<string, number>> = {}
+    const psMap: Record<string, Record<string, boolean>> = {}
+    parsRes.data?.forEach((p: any) => {
+      if (!pqMap[p.delivery_window_id]) pqMap[p.delivery_window_id] = {}
+      if (!psMap[p.delivery_window_id]) psMap[p.delivery_window_id] = {}
+      pqMap[p.delivery_window_id][p.product_id] = p.quantity
+      psMap[p.delivery_window_id][p.product_id] = p.sliced
+    })
+    setParQtyMap(pqMap)
+    setParSlicedMap(psMap)
+    setExistingOrders(ordersRes.data || [])
+
+    const initAdditions: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
+    windows.forEach((w: any) => {
+      initAdditions[w.id] = {}
+      prods.forEach((p: any) => {
+        initAdditions[w.id][p.id] = { quantity: 0, sliced: false }
+      })
+    })
+    setAdditions(initAdditions)
+  }
+
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
@@ -117,53 +156,39 @@ function OrderPageInner() {
 
       const { data: customer } = await supabase
         .from('customers')
-        .select('id')
+        .select('id, is_admin')
         .eq('email', user.email)
         .single()
 
       if (!customer) return
       setCustomerId(customer.id)
 
-      const [pricesRes, parsRes, prodsRes, windowsRes, ordersRes] = await Promise.all([
-        supabase.from('customer_products').select('product_id, price_cents').eq('customer_id', customer.id),
-        supabase.from('customer_pars').select('product_id, delivery_window_id, quantity, sliced').eq('customer_id', customer.id),
+      const [prodsRes, windowsRes] = await Promise.all([
         supabase.from('products').select('*').eq('active', true).order('sort_order'),
         supabase.from('delivery_windows').select('*').eq('active', true).order('sort_order'),
-        supabase.from('orders').select(`
-          id, delivery_date, delivery_window_id, status, is_par, customer_notes,
-          order_items (product_id, quantity, sliced)
-        `).eq('customer_id', customer.id),
       ])
-
-      const priceMap: Record<string, number> = {}
-      pricesRes.data?.forEach((p: any) => { priceMap[p.product_id] = p.price_cents })
-      setCustomerPrices(priceMap)
-
-      const pqMap: Record<string, Record<string, number>> = {}
-      const psMap: Record<string, Record<string, boolean>> = {}
-      parsRes.data?.forEach((p: any) => {
-        if (!pqMap[p.delivery_window_id]) pqMap[p.delivery_window_id] = {}
-        if (!psMap[p.delivery_window_id]) psMap[p.delivery_window_id] = {}
-        pqMap[p.delivery_window_id][p.product_id] = p.quantity
-        psMap[p.delivery_window_id][p.product_id] = p.sliced
-      })
-      setParQtyMap(pqMap)
-      setParSlicedMap(psMap)
 
       const sortedWindows = (windowsRes.data || []).sort((a: any, b: any) => a.sort_order - b.sort_order)
       const prods = prodsRes.data || []
       setProducts(prods)
       setDeliveryWindows(sortedWindows)
-      setExistingOrders(ordersRes.data || [])
 
-      const initAdditions: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
-      sortedWindows.forEach((w: any) => {
-        initAdditions[w.id] = {}
-        prods.forEach((p: any) => {
-          initAdditions[w.id][p.id] = { quantity: 0, sliced: false }
-        })
-      })
-      setAdditions(initAdditions)
+      let targetId = customer.id
+
+      if (customer.is_admin) {
+        setIsAdmin(true)
+        const { data: customers } = await supabase
+          .from('customers')
+          .select('id, name')
+          .eq('active', true)
+          .order('name')
+        setAllCustomers(customers || [])
+        const stored = sessionStorage.getItem('adminSelectedCustomerId')
+        if (stored) targetId = stored
+      }
+
+      setSelectedCustomerId(targetId)
+      await loadCustomerData(targetId, prods, sortedWindows)
 
       if (!tueParam) {
         const baseTue = (() => {
@@ -179,10 +204,11 @@ function OrderPageInner() {
         })()
         const baseWeekStart = baseTue.toISOString().split('T')[0]
         const baseWeekEnd = new Date(new Date(baseTue).setDate(baseTue.getDate() + 6)).toISOString().split('T')[0]
-        const hasOrderThisWeek = (ordersRes.data || []).some((o: any) =>
-          o.delivery_date >= baseWeekStart && o.delivery_date <= baseWeekEnd
-        )
-        if (hasOrderThisWeek) setWeekOffset(1)
+        const hasOrderThisWeek = (await supabase.from('orders').select('id, delivery_date')
+          .eq('customer_id', targetId)
+          .gte('delivery_date', baseWeekStart)
+          .lte('delivery_date', baseWeekEnd)).data?.length ?? 0
+        if (hasOrderThisWeek > 0) setWeekOffset(1)
       }
 
       setLoading(false)
@@ -191,7 +217,7 @@ function OrderPageInner() {
   }, [])
 
   useEffect(() => {
-    if (!products.length || !deliveryWindows.length) return
+    if (!products.length || !deliveryWindows.length || !selectedCustomerId) return
 
     const newAdditions: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
     deliveryWindows.forEach((w: any) => {
@@ -220,6 +246,17 @@ function OrderPageInner() {
     setStep('order')
     setError(null)
   }, [weekOffset, existingOrders, products, deliveryWindows])
+
+  async function handleCustomerChange(newId: string) {
+    const customer = allCustomers.find(c => c.id === newId)
+    setSelectedCustomerId(newId)
+    sessionStorage.setItem('adminSelectedCustomerId', newId)
+    sessionStorage.setItem('adminSelectedCustomerName', customer?.name || '')
+    setWeekOffset(0)
+    setStep('order')
+    setError(null)
+    await loadCustomerData(newId, products, deliveryWindows)
+  }
 
   function getPriceCents(product: any): number | null {
     return customerPrices[product.id] ?? product.price_cents ?? null
@@ -305,8 +342,8 @@ function OrderPageInner() {
   }
 
   async function handleSubmit() {
-    if (!customerId) {
-      setError('No customer account found. Please contact the bakery.')
+    if (!selectedCustomerId) {
+      setError('No customer selected.')
       return
     }
     if (totalMergedItems() === 0) {
@@ -342,7 +379,7 @@ function OrderPageInner() {
       const existingOrder = getExistingOrderForWindow(w.id) || await supabase
         .from('orders')
         .select('id')
-        .eq('customer_id', customerId)
+        .eq('customer_id', selectedCustomerId)
         .eq('delivery_window_id', w.id)
         .gte('delivery_date', weekStart)
         .lte('delivery_date', weekEnd)
@@ -365,7 +402,7 @@ function OrderPageInner() {
         const { data: order, error: orderError } = await supabase
           .from('orders')
           .insert({
-            customer_id: customerId,
+            customer_id: selectedCustomerId,
             delivery_window_id: w.id,
             delivery_date: dateStr,
             status: 'pending',
@@ -388,7 +425,7 @@ function OrderPageInner() {
         .filter(p => mergedQty(w.id, p.id) > 0)
         .map(p => ({
           order_id: orderId,
-          customer_id: customerId,
+          customer_id: selectedCustomerId,
           product_id: p.id,
           delivery_window_id: w.id,
           quantity: mergedQty(w.id, p.id),
@@ -413,7 +450,7 @@ function OrderPageInner() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        customer_id: customerId,
+        customer_id: selectedCustomerId,
         week_start: getWeekStart(),
         week_end: getWeekEnd(),
         week_range: getWeekRange(),
@@ -445,6 +482,16 @@ function OrderPageInner() {
           Review your order for {weekRange} before submitting.
           {hasAnyPar() && ' Standing order quantities are included.'}
         </p>
+
+        {isAdmin && (
+          <div style={{
+            background: '#fffbeb', border: '1px solid #f59e0b',
+            borderRadius: 8, padding: '10px 16px', marginBottom: 20,
+            fontSize: 13, color: '#92400e', fontWeight: 600,
+          }}>
+            Submitting as: {allCustomers.find(c => c.id === selectedCustomerId)?.name}
+          </div>
+        )}
 
         {deliveryWindows.filter(w => colMergedTotal(w.id) > 0).map(w => {
           const winTotal = windowTotalCents(w.id)
@@ -527,18 +574,10 @@ function OrderPageInner() {
         {error && <p style={{ color: 'red', marginBottom: 16 }}>{error}</p>}
 
         <div style={{ display: 'flex', gap: 12, marginBottom: 60 }}>
-          <button
-            onClick={() => setStep('order')}
-            className="btn"
-            style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}
-          >
+          <button onClick={() => setStep('order')} className="btn" style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}>
             ← Edit order
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="btn btn-primary"
-          >
+          <button onClick={handleSubmit} disabled={submitting} className="btn btn-primary">
             {submitting ? 'Submitting...' : `${isEditing ? 'Update' : 'Submit'} order (${totalMergedItems()} loaves)`}
           </button>
         </div>
@@ -549,6 +588,31 @@ function OrderPageInner() {
   return (
     <div>
       <h1 style={{ marginBottom: 4 }}>Place an Order</h1>
+
+      {isAdmin && (
+        <div style={{
+          background: '#fffbeb', border: '1px solid #f59e0b',
+          borderRadius: 8, padding: '12px 16px', marginBottom: 24,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap' }}>
+            Ordering as:
+          </span>
+          <select
+            value={selectedCustomerId || ''}
+            onChange={e => handleCustomerChange(e.target.value)}
+            style={{
+              fontSize: 13, padding: '6px 10px', borderRadius: 6,
+              border: '1px solid #f59e0b', background: '#fff',
+              fontFamily: 'var(--font)', color: 'var(--gray-900)', cursor: 'pointer',
+            }}
+          >
+            {allCustomers.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
         <button
@@ -668,9 +732,9 @@ function OrderPageInner() {
           </thead>
           <tbody>
             {products.map(p => {
-              const weekTotal = weeklyMergedTotal(p.id)
+              const wkTotal = weeklyMergedTotal(p.id)
               const min = p.minimum_quantity ?? 10
-              const underMin = weekTotal > 0 && weekTotal < min
+              const underMin = wkTotal > 0 && wkTotal < min
               const lineTotal = weeklyLineTotalCents(p)
               return (
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--gray-100)' }}>
@@ -678,7 +742,7 @@ function OrderPageInner() {
                     <div>{p.name}</div>
                     {p.can_be_sliced && <div style={{ fontSize: 11, color: 'var(--gray-300)' }}>sliceable</div>}
                     <div style={{ fontSize: 11, color: underMin ? '#dc2626' : 'var(--gray-400)', marginTop: 1 }}>
-                      min {min}/week{weekTotal > 0 ? ` · ${weekTotal} ordered` : ''}
+                      min {min}/week{wkTotal > 0 ? ` · ${wkTotal} ordered` : ''}
                     </div>
                   </td>
                   <td style={{ padding: '6px 16px 6px 0', textAlign: 'right', fontSize: 13, color: 'var(--gray-400)' }}>
@@ -720,7 +784,7 @@ function OrderPageInner() {
                       </td>
                     )
                   })}
-                  <td style={{ padding: '6px 0 6px 8px', textAlign: 'right', fontSize: 13, color: weekTotal > 0 ? 'var(--gray-700)' : 'var(--gray-300)' }}>
+                  <td style={{ padding: '6px 0 6px 8px', textAlign: 'right', fontSize: 13, color: wkTotal > 0 ? 'var(--gray-700)' : 'var(--gray-300)' }}>
                     {lineTotal > 0 ? fmtMoney(lineTotal) : '—'}
                   </td>
                 </tr>
@@ -749,7 +813,7 @@ function OrderPageInner() {
         <textarea
           value={notes}
           onChange={e => setNotes(e.target.value)}
-          placeholder="e.g. PO number, back door delivery, skip the rye this week..."
+          placeholder="e.g. back door delivery, skip the rye this week..."
           rows={3}
           style={{
             width: '100%', padding: 10, border: '1px solid var(--gray-200)',
