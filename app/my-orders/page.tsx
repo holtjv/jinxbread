@@ -7,24 +7,52 @@ export default function MyOrdersPage() {
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set())
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [allCustomers, setAllCustomers] = useState<any[]>([])
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
   const supabase = createClient()
+
+  async function loadOrders(targetId: string) {
+    const { data, error } = await supabase.from('orders').select(`
+      id, delivery_date, delivery_window_id, status, is_par, customer_notes, submitted_at,
+      delivery_window:delivery_windows (label, day_of_week),
+      order_items (quantity, sliced, product:products (name, sku))
+    `).eq('customer_id', targetId).order('delivery_date', { ascending: false })
+    if (!error) setOrders(data || [])
+  }
 
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data: customer } = await supabase.from('customers').select('id').eq('email', user.email).single()
+      const { data: customer } = await supabase.from('customers').select('id, is_admin').eq('email', user.email).single()
       if (!customer) return
-      const { data, error } = await supabase.from('orders').select(`
-        id, delivery_date, delivery_window_id, status, is_par, customer_notes, submitted_at,
-        delivery_window:delivery_windows (label, day_of_week),
-        order_items (quantity, sliced, product:products (name, sku))
-      `).eq('customer_id', customer.id).order('delivery_date', { ascending: false })
-      if (!error) setOrders(data || [])
+
+      let targetId = customer.id
+
+      if (customer.is_admin) {
+        setIsAdmin(true)
+        const { data: customers } = await supabase.from('customers').select('id, name').eq('active', true).order('name')
+        setAllCustomers(customers || [])
+        const stored = sessionStorage.getItem('adminSelectedCustomerId')
+        if (stored) targetId = stored
+      }
+
+      setSelectedCustomerId(targetId)
+      await loadOrders(targetId)
       setLoading(false)
     }
     load()
   }, [])
+
+  async function handleCustomerChange(newId: string) {
+    const c = allCustomers.find(c => c.id === newId)
+    setSelectedCustomerId(newId)
+    sessionStorage.setItem('adminSelectedCustomerId', newId)
+    sessionStorage.setItem('adminSelectedCustomerName', c?.name || '')
+    setOrders([])
+    await loadOrders(newId)
+  }
 
   function fmtDate(dateStr: string) {
     return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -92,7 +120,6 @@ export default function MyOrdersPage() {
     })
   }
 
-  // Summarize week status — if all fulfilled show Delivered, else show most prominent
   function weekStatusSummary(weekOrders: any[]) {
     if (weekOrders.every(o => o.status === 'fulfilled')) return { label: 'Delivered', ...statusColors('fulfilled') }
     if (weekOrders.some(o => o.status === 'in_production')) return { label: 'In Production', ...statusColors('in_production') }
@@ -114,6 +141,32 @@ export default function MyOrdersPage() {
   return (
     <div>
       <h1>My Orders</h1>
+
+      {isAdmin && (
+        <div style={{
+          background: '#fffbeb', border: '1px solid #f59e0b',
+          borderRadius: 8, padding: '12px 16px', marginBottom: 24,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap' }}>
+            Viewing as:
+          </span>
+          <select
+            value={selectedCustomerId || ''}
+            onChange={e => handleCustomerChange(e.target.value)}
+            style={{
+              fontSize: 13, padding: '6px 10px', borderRadius: 6,
+              border: '1px solid #f59e0b', background: '#fff',
+              fontFamily: 'var(--font)', color: 'var(--gray-900)', cursor: 'pointer',
+            }}
+          >
+            {allCustomers.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <p className="page-subtitle">Your submitted orders by week.</p>
       {orders.length === 0 ? (
         <p style={{ color: 'var(--gray-500)', marginTop: 24 }}>
@@ -137,7 +190,6 @@ export default function MyOrdersPage() {
                 overflow: 'hidden',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
               }}>
-                {/* Card header */}
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -146,7 +198,6 @@ export default function MyOrdersPage() {
                   background: 'var(--gray-50)',
                   borderBottom: isExpanded ? '1px solid var(--gray-200)' : 'none',
                 }}>
-                  {/* Left: week info */}
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
                       Week of {weekLabel}
@@ -163,31 +214,23 @@ export default function MyOrdersPage() {
                       </span>
                     </div>
                   </div>
-
-                  {/* Right: buttons */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {editable && (
-                      
-                        <a href={editUrl}
-                        style={{
-                          fontSize: 13, fontWeight: 600, color: '#fff',
-                          background: 'var(--accent)', textDecoration: 'none',
-                          padding: '7px 16px', borderRadius: 6, whiteSpace: 'nowrap',
-                        }}
-                      >
+                      <a href={editUrl} style={{
+                        fontSize: 13, fontWeight: 600, color: '#fff',
+                        background: 'var(--accent)', textDecoration: 'none',
+                        padding: '7px 16px', borderRadius: 6, whiteSpace: 'nowrap',
+                      }}>
                         Edit order
                       </a>
                     )}
                     <button
                       onClick={() => toggleWeek(weekLabel)}
                       style={{
-                        fontSize: 13, fontWeight: 600,
-                        color: 'var(--gray-700)',
-                        background: '#fff',
-                        border: '1px solid var(--gray-200)',
+                        fontSize: 13, fontWeight: 600, color: 'var(--gray-700)',
+                        background: '#fff', border: '1px solid var(--gray-200)',
                         padding: '7px 16px', borderRadius: 6,
-                        cursor: 'pointer', whiteSpace: 'nowrap',
-                        fontFamily: 'var(--font)',
+                        cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'var(--font)',
                       }}
                     >
                       {isExpanded ? 'Hide details' : 'View details'}
@@ -195,7 +238,6 @@ export default function MyOrdersPage() {
                   </div>
                 </div>
 
-                {/* Expanded delivery details */}
                 {isExpanded && (
                   <div>
                     {weekOrders.map((order, idx) => {
@@ -226,9 +268,6 @@ export default function MyOrdersPage() {
                               {order.order_items?.map((item: any, i: number) => (
                                 <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
                                   <td style={{ padding: '4px 0', fontSize: 13 }}>{item.product.name}</td>
-                                  <td style={{ padding: '4px 0', fontSize: 12, color: 'var(--gray-500)' }}>
-                                    {item.sliced ? 'sliced' : ''}
-                                  </td>
                                   <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>
                                     ×{item.quantity}
                                   </td>
