@@ -263,8 +263,8 @@ function OrderPageInner() {
     setStep('order')
     setError(null)
     await loadCustomerData(newId, products, deliveryWindows)
+    setWeekOffset(0)
     setDataVersion(v => v + 1)
-  }
 
   function getPriceCents(product: any): number | null {
     return customerPrices[product.id] ?? product.price_cents ?? null
@@ -475,7 +475,7 @@ function OrderPageInner() {
   const weekRange = getWeekRange()
   const cutoffString = getCutoffString()
   const isEditing = hasExistingOrderThisWeek()
-  const pastCutoff = isCurrentWeekPastCutoff()
+  const pastCutoff = isCurrentWeekPastCutoff() && !isAdmin
   const weekTotal = orderWeekTotalCents()
 
   const dayShort: Record<string, string> = {
