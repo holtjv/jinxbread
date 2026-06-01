@@ -8,6 +8,10 @@ export default function ParPage() {
   const [deliveryWindows, setDeliveryWindows] = useState<any[]>([])
   const [pars, setPars] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
   const [customerId, setCustomerId] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [allCustomers, setAllCustomers] = useState<any[]>([])
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
+  const [selectedCustomerName, setSelectedCustomerName] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -16,6 +20,30 @@ export default function ParPage() {
 
   const supabase = createClient()
 
+  async function loadPars(targetCustomerId: string, prods: any[], windows: any[]) {
+    const { data: existingPars } = await supabase
+      .from('customer_pars')
+      .select('*')
+      .eq('customer_id', targetCustomerId)
+
+    const parMap: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
+    windows.forEach((w: any) => {
+      parMap[w.id] = {}
+      prods.forEach((p: any) => {
+        parMap[w.id][p.id] = { quantity: 0, sliced: false }
+      })
+    })
+    existingPars?.forEach((par: any) => {
+      if (parMap[par.delivery_window_id]) {
+        parMap[par.delivery_window_id][par.product_id] = {
+          quantity: par.quantity,
+          sliced: par.sliced,
+        }
+      }
+    })
+    setPars(parMap)
+  }
+
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
@@ -23,55 +51,60 @@ export default function ParPage() {
 
       const { data: customer } = await supabase
         .from('customers')
-        .select('id')
+        .select('id, is_admin')
         .eq('email', user.email)
         .single()
 
       if (!customer) return
       setCustomerId(customer.id)
 
-      const { data: prods } = await supabase
-        .from('products')
-        .select('*')
-        .eq('active', true)
-        .order('sort_order')
+      const [prodsRes, windowsRes] = await Promise.all([
+        supabase.from('products').select('*').eq('active', true).order('sort_order'),
+        supabase.from('delivery_windows').select('*').eq('active', true).order('sort_order'),
+      ])
 
-      const { data: windows } = await supabase
-        .from('delivery_windows')
-        .select('*')
-        .eq('active', true)
-        .order('sort_order')
-
-      const sortedWindows = (windows || []).sort((a: any, b: any) => a.sort_order - b.sort_order)
-
-      const { data: existingPars } = await supabase
-        .from('customer_pars')
-        .select('*')
-        .eq('customer_id', customer.id)
-
-      const parMap: Record<string, Record<string, { quantity: number; sliced: boolean }>> = {}
-      sortedWindows.forEach((w: any) => {
-        parMap[w.id] = {}
-        prods?.forEach((p: any) => {
-          parMap[w.id][p.id] = { quantity: 0, sliced: false }
-        })
-      })
-      existingPars?.forEach((par: any) => {
-        if (parMap[par.delivery_window_id]) {
-          parMap[par.delivery_window_id][par.product_id] = {
-            quantity: par.quantity,
-            sliced: par.sliced,
-          }
-        }
-      })
-
-      setProducts(prods || [])
+      const sortedWindows = (windowsRes.data || []).sort((a: any, b: any) => a.sort_order - b.sort_order)
+      const prods = prodsRes.data || []
+      setProducts(prods)
       setDeliveryWindows(sortedWindows)
-      setPars(parMap)
+
+      if (customer.is_admin) {
+        setIsAdmin(true)
+        const { data: customers } = await supabase
+          .from('customers')
+          .select('id, name')
+          .eq('active', true)
+          .order('name')
+        setAllCustomers(customers || [])
+
+        // Check sessionStorage for previously selected customer
+        const stored = sessionStorage.getItem('adminSelectedCustomerId')
+        const storedName = sessionStorage.getItem('adminSelectedCustomerName')
+        const targetId = stored || customer.id
+        const targetName = storedName || 'My account'
+        setSelectedCustomerId(targetId)
+        setSelectedCustomerName(targetName)
+        await loadPars(targetId, prods, sortedWindows)
+      } else {
+        setSelectedCustomerId(customer.id)
+        await loadPars(customer.id, prods, sortedWindows)
+      }
+
       setLoading(false)
     }
     load()
   }, [])
+
+  async function handleCustomerChange(newId: string) {
+    const customer = allCustomers.find(c => c.id === newId)
+    setSelectedCustomerId(newId)
+    setSelectedCustomerName(customer?.name || '')
+    sessionStorage.setItem('adminSelectedCustomerId', newId)
+    sessionStorage.setItem('adminSelectedCustomerName', customer?.name || '')
+    setSaved(false)
+    setError(null)
+    await loadPars(newId, products, deliveryWindows)
+  }
 
   const sortedProducts = useMemo(() => {
     const hasParQty = (productId: string) =>
@@ -103,9 +136,9 @@ export default function ParPage() {
   }
 
   async function handleSave() {
+    if (!selectedCustomerId) return
     setError(null)
 
-    // Validate minimums
     const violations: string[] = []
     products.forEach(p => {
       const total = weeklyTotal(p.id)
@@ -128,7 +161,7 @@ export default function ParPage() {
         const par = pars[w.id]?.[p.id]
         if (par && par.quantity > 0) {
           rows.push({
-            customer_id: customerId,
+            customer_id: selectedCustomerId,
             delivery_window_id: w.id,
             product_id: p.id,
             quantity: par.quantity,
@@ -141,7 +174,7 @@ export default function ParPage() {
     const { error: deleteError } = await supabase
       .from('customer_pars')
       .delete()
-      .eq('customer_id', customerId)
+      .eq('customer_id', selectedCustomerId)
 
     if (deleteError) {
       setError('Error saving: ' + deleteError.message)
@@ -196,7 +229,7 @@ export default function ParPage() {
                   min="0"
                   value={par?.quantity || 0}
                   onChange={e => updatePar(w.id, p.id, 'quantity', e.target.value)}
-                  className={`qty-input${par?.quantity > 0 ? ' has-value' : ''}${underMin ? ' error' : ''}`}
+                  className={`qty-input${par?.quantity > 0 ? ' has-value' : ''}`}
                   style={underMin ? { borderColor: '#dc2626' } : {}}
                 />
                 {p.can_be_sliced && par?.quantity > 0 && (
@@ -220,6 +253,32 @@ export default function ParPage() {
   return (
     <div>
       <h1>Standing Order</h1>
+
+      {isAdmin && (
+        <div style={{
+          background: '#fffbeb', border: '1px solid #f59e0b',
+          borderRadius: 8, padding: '12px 16px', marginBottom: 24,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap' }}>
+            Editing as:
+          </span>
+          <select
+            value={selectedCustomerId || ''}
+            onChange={e => handleCustomerChange(e.target.value)}
+            style={{
+              fontSize: 13, padding: '6px 10px', borderRadius: 6,
+              border: '1px solid #f59e0b', background: '#fff',
+              fontFamily: 'var(--font)', color: 'var(--gray-900)', cursor: 'pointer',
+            }}
+          >
+            {allCustomers.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <p className="page-subtitle">
         Repeats every week until you change it. Set a quantity to 0 to remove a product.
       </p>
@@ -246,7 +305,6 @@ export default function ParPage() {
             ) : (
               renderRows(sortedProducts.withPar)
             )}
-
             {sortedProducts.withPar.length > 0 && (
               <tr className="totals-row">
                 <td>Total per week</td>
@@ -274,13 +332,10 @@ export default function ParPage() {
             <span style={{ fontSize: 18, lineHeight: 1 }}>{showOthers ? '−' : '+'}</span>
             {showOthers ? 'Hide other products' : `Add products (${sortedProducts.withoutPar.length} available)`}
           </button>
-
           {showOthers && (
             <div style={{ overflowX: 'auto', marginTop: 12 }}>
               <table className="data-table">
-                <tbody>
-                  {renderRows(sortedProducts.withoutPar)}
-                </tbody>
+                <tbody>{renderRows(sortedProducts.withoutPar)}</tbody>
               </table>
             </div>
           )}
