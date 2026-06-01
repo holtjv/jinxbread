@@ -749,7 +749,7 @@ function OrderPageInner() {
         <textarea
           value={notes}
           onChange={e => setNotes(e.target.value)}
-          placeholder="e.g. back door delivery, skip the rye this week..."
+          placeholder="e.g. PO number, back door delivery, skip the rye this week..."
           rows={3}
           style={{
             width: '100%', padding: 10, border: '1px solid var(--gray-200)',
