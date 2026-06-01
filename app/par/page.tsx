@@ -18,7 +18,7 @@ export default function ParPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [hasSavedOnce, setHasSavedOnce] = useState(false)
-  co  co  co  co  co  co  co  co  co  co  co  null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const supabase = createClient()
 
