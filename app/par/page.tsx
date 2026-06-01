@@ -75,12 +75,6 @@ export default function ParPage() {
 
       if (customer.is_admin) {
         setIsAdmin(true)
-        const { data: customers } = await supabase
-          .from('customers')
-          .select('id, nam          .select('id, nam          .se     .order('name')
-                          stomers |                          stomers |                    dminSele                         const storedName = sessionStorage.getItem('admin                 ame')
-              targetId = stored || c              targetId = targetName = storedName || 'My account'
-        setSelectedCustomerId(targetId)
         setSelectedCustomerName(targetName)
         await loadPars        await loadPars        await loadPars        await loadPars        await loader        await loadPars        await loadPars        await loadPars        await loadPars   lse      }
     load()
