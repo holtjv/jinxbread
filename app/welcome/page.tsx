@@ -15,10 +15,23 @@ export default function WelcomePage() {
   const supabase = createClient()
 
   useEffect(() => {
+    async function checkSession() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        setReady(true)
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('name')
+          .eq('email', session.user.email)
+          .maybeSingle()
+        if (customer?.name) setCustomerName(customer.name)
+      }
+    }
+    checkSession()
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if ((event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') && session?.user) {
         setReady(true)
-        // Look up customer name by email
         const { data: customer } = await supabase
           .from('customers')
           .select('name')
@@ -27,6 +40,7 @@ export default function WelcomePage() {
         if (customer?.name) setCustomerName(customer.name)
       }
     })
+
     return () => subscription.unsubscribe()
   }, [])
 
