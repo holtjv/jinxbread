@@ -13,7 +13,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Email and customer are required' }, { status: 400 })
   }
 
-  // Check if a customer record already exists with this email
   const { data: existingCustomer } = await supabase
     .from('customers')
     .select('id')
@@ -21,7 +20,6 @@ export async function POST(request: Request) {
     .maybeSingle()
 
   if (existingCustomer) {
-    // Email already linked to a customer — just update is_admin if needed
     const { error: updateError } = await supabase
       .from('customers')
       .update({ is_admin: is_admin || false })
@@ -31,7 +29,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
   } else {
-    // No customer with this email yet — check if selected customer already has an email
     const { data: selectedCustomer } = await supabase
       .from('customers')
       .select('email')
@@ -39,12 +36,8 @@ export async function POST(request: Request) {
       .single()
 
     if (selectedCustomer?.email && selectedCustomer.email !== email) {
-      // Customer already has a different email — don't overwrite it
-      // Instead just send the invite and let the customer record stay as-is
-      // The new user won't be auto-linked to this customer on login
       // TODO: multi-user per customer support
     } else {
-      // Customer has no email yet — set it
       const { error: updateError } = await supabase
         .from('customers')
         .update({ email, is_admin: is_admin || false })
@@ -56,9 +49,8 @@ export async function POST(request: Request) {
     }
   }
 
-  // Send magic link invite via Supabase Auth
   const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
-    redirectTo: 'https://jinxbread.vercel.app/order',
+    redirectTo: 'https://jinxbread.vercel.app/welcome',
   })
 
   if (inviteError) {
