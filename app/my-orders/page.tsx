@@ -5,6 +5,9 @@ import { createClient } from '../../lib/supabase'
 
 export default function MyOrdersPage() {
   const [orders, setOrders] = useState<any[]>([])
+  const [pars, setPars] = useState<any[]>([])
+  const [products, setProducts] = useState<any[]>([])
+  const [deliveryWindows, setDeliveryWindows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set())
   const [isAdmin, setIsAdmin] = useState(false)
@@ -13,12 +16,20 @@ export default function MyOrdersPage() {
   const supabase = createClient()
 
   async function loadOrders(targetId: string) {
-    const { data, error } = await supabase.from('orders').select(`
-      id, delivery_date, delivery_window_id, status, is_par, customer_notes, submitted_at,
-      delivery_window:delivery_windows (label, day_of_week),
-      order_items (quantity, sliced, product:products (name, sku))
-    `).eq('customer_id', targetId).order('delivery_date', { ascending: false })
-    if (!error) setOrders(data || [])
+    const [ordersRes, parsRes, prodsRes, windowsRes] = await Promise.all([
+      supabase.from('orders').select(`
+        id, delivery_date, delivery_window_id, status, is_par, customer_notes, submitted_at,
+        delivery_window:delivery_windows (label, day_of_week),
+        order_items (quantity, sliced, product:products (name, sku))
+      `).eq('customer_id', targetId).order('delivery_date', { ascending: false }),
+      supabase.from('customer_pars').select('product_id, delivery_window_id, quantity').eq('customer_id', targetId),
+      supabase.from('products').select('id, name, sku').eq('active', true).order('sort_order'),
+      supabase.from('delivery_windows').select('id, label, day_of_week, sort_order').eq('active', true).order('sort_order'),
+    ])
+    if (!ordersRes.error) setOrders(ordersRes.data || [])
+    setPars(parsRes.data || [])
+    setProducts(prodsRes.data || [])
+    setDeliveryWindows((windowsRes.data || []).sort((a: any, b: any) => a.sort_order - b.sort_order))
   }
 
   useEffect(() => {
@@ -51,6 +62,7 @@ export default function MyOrdersPage() {
     sessionStorage.setItem('adminSelectedCustomerId', newId)
     sessionStorage.setItem('adminSelectedCustomerName', c?.name || '')
     setOrders([])
+    setPars([])
     await loadOrders(newId)
   }
 
@@ -61,7 +73,7 @@ export default function MyOrdersPage() {
   function statusLabel(status: string, isPar: boolean) {
     const labels: Record<string, string> = {
       pending: 'Submitted', confirmed: 'Confirmed', in_production: 'In Production',
-      fulfilled: 'Delivered', cancelled: 'Cancelled', par_pending: 'Standing Order',
+      fulfilled: 'Delivered', cancelled: 'Cancelled',
     }
     let label = labels[status] || status
     if (isPar && status === 'pending') label = 'Auto-submitted (par)'
@@ -128,6 +140,44 @@ export default function MyOrdersPage() {
     return { label: 'Submitted', ...statusColors('pending') }
   }
 
+  // Build upcoming week range for par preview
+  function getUpcomingTuesday(): Date {
+    const today = new Date()
+    const day = today.getDay()
+    let tueDiff = 2 - day
+    if (tueDiff <= 0) tueDiff += 7
+    // If past Sunday noon cutoff, bump to following week
+    if (day === 0 && today.getHours() >= 12) tueDiff += 7
+    const tue = new Date(today)
+    tue.setDate(today.getDate() + tueDiff)
+    tue.setHours(0, 0, 0, 0)
+    return tue
+  }
+
+  function getUpcomingWeekKey(): string {
+    const tue = getUpcomingTuesday()
+    const mon = new Date(tue)
+    mon.setDate(tue.getDate() + 6)
+    const fmt = (x: Date) => x.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    return `${fmt(tue)}–${fmt(mon)}`
+  }
+
+  function getUpcomingSunday(): Date {
+    const tue = getUpcomingTuesday()
+    const sun = new Date(tue)
+    sun.setDate(tue.getDate() - 2)
+    return sun
+  }
+
+  function hasPars(): boolean {
+    return pars.some(p => p.quantity > 0)
+  }
+
+  function upcomingWeekHasOrders(): boolean {
+    const upcomingKey = getUpcomingWeekKey()
+    return orders.some(o => getWeekKey(o.delivery_date) === upcomingKey)
+  }
+
   const grouped: Record<string, any[]> = {}
   orders.forEach(o => {
     const key = getWeekKey(o.delivery_date)
@@ -135,6 +185,30 @@ export default function MyOrdersPage() {
     grouped[key].push(o)
   })
   Object.keys(grouped).forEach(key => grouped[key].sort((a, b) => a.delivery_date.localeCompare(b.delivery_date)))
+
+  const showParPreview = hasPars() && !upcomingWeekHasOrders()
+  const upcomingWeekKey = getUpcomingWeekKey()
+  const upcomingSunday = getUpcomingSunday()
+
+  // Build par preview rows grouped by window
+  const parByWindow: Record<string, { windowLabel: string; items: { name: string; quantity: number }[] }> = {}
+  deliveryWindows.forEach(w => {
+    const items = pars
+      .filter(p => p.delivery_window_id === w.id && p.quantity > 0)
+      .map(p => ({
+        name: products.find(pr => pr.id === p.product_id)?.name || p.product_id,
+        quantity: p.quantity,
+      }))
+    if (items.length > 0) {
+      parByWindow[w.id] = { windowLabel: w.label || w.day_of_week, items }
+    }
+  })
+  const parTotalLoaves = pars.reduce((t, p) => t + (p.quantity || 0), 0)
+
+  const dayShort: Record<string, string> = {
+    monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
+    thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun',
+  }
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
@@ -168,14 +242,81 @@ export default function MyOrdersPage() {
       )}
 
       <p className="page-subtitle">Your submitted orders by week.</p>
-      {orders.length === 0 ? (
-        <p style={{ color: 'var(--gray-500)', marginTop: 24 }}>
-          No orders yet.{' '}
-          <a href="/order" style={{ color: 'var(--accent)' }}>Place your first order →</a>
-        </p>
-      ) : (
-        <div style={{ marginTop: 24 }}>
-          {Object.entries(grouped).map(([weekLabel, weekOrders]) => {
+
+      <div style={{ marginTop: 24 }}>
+
+        {/* Par preview card — shown when par exists but cron hasn't run yet */}
+        {showParPreview && (
+          <div style={{
+            border: '2px dashed var(--gray-300)',
+            borderRadius: 10,
+            marginBottom: 12,
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '16px 20px',
+              background: 'var(--gray-50)',
+            }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
+                  Week of {upcomingWeekKey}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>
+                    {parTotalLoaves} loaves
+                  </span>
+                  <span style={{
+                    fontSize: 11, padding: '2px 8px', borderRadius: 4,
+                    background: '#e0f2fe', color: '#0369a1', fontWeight: 500,
+                  }}>
+                    Submits Sunday at 1pm
+                  </span>
+                </div>
+              </div>
+              <a href="/par" style={{
+                fontSize: 13, fontWeight: 600, color: 'var(--accent)',
+                textDecoration: 'none', whiteSpace: 'nowrap',
+              }}>
+                Edit standing order →
+              </a>
+            </div>
+            <div style={{ padding: '14px 20px' }}>
+              {Object.values(parByWindow).map((win, idx) => (
+                <div key={idx} style={{ marginBottom: idx < Object.values(parByWindow).length - 1 ? 12 : 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {win.windowLabel}
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <tbody>
+                      {win.items.map((item, i) => (
+                        <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
+                          <td style={{ padding: '4px 0', fontSize: 13 }}>{item.name}</td>
+                          <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>
+                            ×{item.quantity}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+              <p style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 12, marginBottom: 0 }}>
+                Your standing order submits automatically on {upcomingSunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} at 1:00pm.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {orders.length === 0 && !showParPreview ? (
+          <p style={{ color: 'var(--gray-500)' }}>
+            No orders yet.{' '}
+            <a href="/order" style={{ color: 'var(--accent)' }}>Place your first order →</a>
+          </p>
+        ) : (
+          Object.entries(grouped).map(([weekLabel, weekOrders]) => {
             const isExpanded = expandedWeeks.has(weekLabel)
             const editable = weekOrders.some(o => isEditable(o.delivery_date))
             const totalForWeek = weekOrders.reduce((t, o) => t + totalLoaves(o), 0)
@@ -287,9 +428,9 @@ export default function MyOrdersPage() {
                 )}
               </div>
             )
-          })}
-        </div>
-      )}
+          })
+        )}
+      </div>
     </div>
   )
 }
