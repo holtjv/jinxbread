@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation'
 export default function SettingsPage() {
   const [notifFriday, setNotifFriday] = useState(true)
   const [notifSunday, setNotifSunday] = useState(true)
+  const [savedFriday, setSavedFriday] = useState(true)
+  const [savedSunday, setSavedSunday] = useState(true)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -14,6 +16,8 @@ export default function SettingsPage() {
   const [customerId, setCustomerId] = useState<string | null>(null)
   const supabase = createClient()
   const router = useRouter()
+
+  const isDirty = notifFriday !== savedFriday || notifSunday !== savedSunday
 
   useEffect(() => {
     async function load() {
@@ -28,6 +32,8 @@ export default function SettingsPage() {
       setCustomerId(customer.id)
       setNotifFriday(customer.notif_reminder_friday ?? true)
       setNotifSunday(customer.notif_reminder_sunday ?? true)
+      setSavedFriday(customer.notif_reminder_friday ?? true)
+      setSavedSunday(customer.notif_reminder_sunday ?? true)
       setLoading(false)
     }
     load()
@@ -51,6 +57,8 @@ export default function SettingsPage() {
     }
     setSaving(false)
     setSaved(true)
+    setSavedFriday(notifFriday)
+    setSavedSunday(notifSunday)
     setTimeout(() => setSaved(false), 4000)
   }
 
@@ -146,7 +154,12 @@ export default function SettingsPage() {
         {error && <p style={{ color: 'red', marginBottom: 12 }}>{error}</p>}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <button onClick={handleSave} disabled={saving} className="btn btn-primary">
+          <button
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            className="btn btn-primary"
+            style={{ opacity: isDirty ? 1 : 0.4, cursor: isDirty ? 'pointer' : 'not-allowed' }}
+          >
             {saving ? 'Saving...' : 'Save settings'}
           </button>
           {saved && (
