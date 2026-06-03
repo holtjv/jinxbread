@@ -718,20 +718,20 @@ export default function AdminPage() {
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
                           <span style={{ color: 'var(--gray-500)', fontSize: 13 }}>$</span>
                           <input
-  type="number"
-  min="0"
-  step="0.01"
-  key={`${selectedCustomerId}-${p.id}`}
-  placeholder={p.price_cents ? (p.price_cents / 100).toFixed(2) : '0.00'}
-  value={prices[p.id] ?? ''}
-  onChange={e => setPrices(prev => ({ ...prev, [p.id]: e.target.value }))}
-  style={{
-    width: 80, textAlign: 'right', padding: '6px 4px',
-    border: '1px solid var(--border)', borderRadius: 4,
-    fontSize: 14, fontFamily: 'var(--font)', color: 'var(--black)',
-    background: '#fff',
-  }}
-/>
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            key={`${selectedCustomerId}-${p.id}`}
+                            placeholder={p.price_cents ? (p.price_cents / 100).toFixed(2) : '0.00'}
+                            value={prices[p.id] ?? ''}
+                            onChange={e => setPrices(prev => ({ ...prev, [p.id]: e.target.value }))}
+                            style={{
+                              width: 80, textAlign: 'right', padding: '6px 4px',
+                              border: '1px solid var(--border)', borderRadius: 4,
+                              fontSize: 14, fontFamily: 'var(--font)',
+                              color: 'var(--black)', background: '#fff',
+                            }}
+                          />
                         </div>
                       </td>
                     </tr>
