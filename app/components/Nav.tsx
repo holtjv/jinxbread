@@ -56,6 +56,9 @@ export default function Nav() {
             Admin
           </a>
         )}
+        <a href="/settings" className={pathname === '/settings' ? 'active' : ''}>
+          Settings
+        </a>
       </nav>
       <div className="sidebar-footer">
         <button onClick={handleLogout}>Sign out</button>
