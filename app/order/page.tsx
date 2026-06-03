@@ -4,6 +4,97 @@ import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { createClient } from '../../lib/supabase'
 
+function WeekTiles({
+  weekOffset,
+  setWeekOffset,
+  getWeekRange,
+  getSelectedSunday,
+  isAdmin,
+  existingOrders,
+  getWeekStart,
+  getWeekEnd,
+  getBaseTuesday,
+}: {
+  weekOffset: number
+  setWeekOffset: (n: number) => void
+  getWeekRange: (tuesday?: Date) => string
+  getSelectedSunday: (offset: number) => Date
+  isAdmin: boolean
+  existingOrders: any[]
+  getWeekStart: (offset: number) => string
+  getWeekEnd: (offset: number) => string
+  getBaseTuesday: () => Date
+}) {
+  const labels = ['This week', 'Next week', '2 weeks out', '3 weeks out']
+
+  return (
+    <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' as const }}>
+      {[0, 1, 2, 3].map(offset => {
+        const base = getBaseTuesday()
+        const tue = new Date(base)
+        tue.setDate(base.getDate() + offset * 7)
+        const range = getWeekRange(tue)
+        const sunday = getSelectedSunday(offset)
+        const cutoffPassed = !isAdmin && new Date() > (() => { const d = new Date(sunday); d.setHours(12,0,0,0); return d })()
+        const weekStart = getWeekStart(offset)
+        const weekEnd = getWeekEnd(offset)
+        const hasOrder = existingOrders.some(o =>
+          o.delivery_date >= weekStart && o.delivery_date <= weekEnd
+        )
+        const isSelected = weekOffset === offset
+
+        return (
+          <button
+            key={offset}
+            onClick={() => setWeekOffset(offset)}
+            style={{
+              flex: '1 1 120px',
+              padding: '10px 12px',
+              border: `2px solid ${isSelected ? 'var(--accent)' : 'var(--gray-200)'}`,
+              borderRadius: 8,
+              background: isSelected ? 'var(--accent-light, #f0f7ff)' : '#fff',
+              cursor: 'pointer',
+              textAlign: 'left' as const,
+              fontFamily: 'var(--font)',
+              position: 'relative' as const,
+            }}
+          >
+            <div style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: isSelected ? 'var(--accent)' : 'var(--gray-500)',
+              textTransform: 'uppercase' as const,
+              letterSpacing: '0.05em',
+              marginBottom: 4,
+            }}>
+              {labels[offset]}
+            </div>
+            <div style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: isSelected ? 'var(--accent)' : 'var(--gray-900)',
+              marginBottom: 4,
+            }}>
+              {range}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {cutoffPassed && (
+                <span style={{ fontSize: 10, color: '#dc2626' }}>Locked</span>
+              )}
+              {hasOrder && !cutoffPassed && (
+                <span style={{ fontSize: 10, color: '#2563eb' }}>Submitted</span>
+              )}
+              {hasOrder && cutoffPassed && (
+                <span style={{ fontSize: 10, color: '#6b7280' }}>Locked</span>
+              )}
+            </div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function OrderPageInner() {
   const searchParams = useSearchParams()
   const tueParam = searchParams.get('tue')
@@ -34,9 +125,10 @@ function OrderPageInner() {
   }
 
   function isCurrentWeekPastCutoff(): boolean {
-    const cutoff = getSelectedSunday()
-    cutoff.setHours(12, 0, 0, 0)
-    return new Date() > cutoff
+    const cutoff = getSelectedSunday(weekOffset)
+    const d = new Date(cutoff)
+    d.setHours(12, 0, 0, 0)
+    return new Date() > d
   }
 
   function getBaseTuesday(): Date {
@@ -74,8 +166,10 @@ function OrderPageInner() {
     return d
   }
 
-  function getSelectedSunday(): Date {
-    const tue = getSelectedTuesday()
+  function getSelectedSunday(offset: number): Date {
+    const base = getBaseTuesday()
+    const tue = new Date(base)
+    tue.setDate(base.getDate() + offset * 7)
     const sun = new Date(tue)
     sun.setDate(tue.getDate() - 2)
     return sun
@@ -83,22 +177,29 @@ function OrderPageInner() {
 
   function getWeekRange(tuesday?: Date): string {
     const tue = tuesday || getSelectedTuesday()
-    const mon = getDeliveryDate('monday', tue)
+    const mon = new Date(tue)
+    mon.setDate(tue.getDate() + 6)
     const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     return `${fmt(tue)}–${fmt(mon)}`
   }
 
   function getCutoffString(): string {
-    const sunday = getSelectedSunday()
+    const sunday = getSelectedSunday(weekOffset)
     return sunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   }
 
-  function getWeekStart(): string {
-    return getSelectedTuesday().toISOString().split('T')[0]
+  function getWeekStart(offset?: number): string {
+    const base = getBaseTuesday()
+    const tue = new Date(base)
+    tue.setDate(base.getDate() + (offset ?? weekOffset) * 7)
+    return tue.toISOString().split('T')[0]
   }
 
-  function getWeekEnd(): string {
-    return getDeliveryDate('monday').toISOString().split('T')[0]
+  function getWeekEnd(offset?: number): string {
+    const base = getBaseTuesday()
+    const tue = new Date(base)
+    tue.setDate(base.getDate() + (offset ?? weekOffset) * 7 + 6)
+    return tue.toISOString().split('T')[0]
   }
 
   function getExistingOrderForWindow(windowId: string): any | null {
@@ -198,17 +299,7 @@ function OrderPageInner() {
       await loadCustomerData(targetId, prods, sortedWindows)
 
       if (!tueParam) {
-        const baseTue = (() => {
-          const today = new Date()
-          const day = today.getDay()
-          let tueDiff = 2 - day
-          if (tueDiff <= 0) tueDiff += 7
-          if (today.getDay() === 0 && today.getHours() >= 12) tueDiff += 7
-          const tue = new Date(today)
-          tue.setDate(today.getDate() + tueDiff)
-          tue.setHours(0, 0, 0, 0)
-          return tue
-        })()
+        const baseTue = getBaseTuesday()
         const baseWeekStart = baseTue.toISOString().split('T')[0]
         const baseWeekEnd = new Date(new Date(baseTue).setDate(baseTue.getDate() + 6)).toISOString().split('T')[0]
         const hasOrderThisWeek = (await supabase.from('orders').select('id, delivery_date')
@@ -451,7 +542,7 @@ function OrderPageInner() {
       }
     }
 
-    const cutoffSunday = getSelectedSunday()
+    const cutoffSunday = getSelectedSunday(weekOffset)
     const cutoffStr = cutoffSunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
     fetch('/api/send-confirmation', {
@@ -623,52 +714,23 @@ function OrderPageInner() {
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-        <button
-          onClick={() => setWeekOffset(o => Math.max(0, o - 1))}
-          disabled={weekOffset === 0}
-          style={{
-            background: 'none', border: '1px solid var(--gray-200)', borderRadius: 6,
-            padding: '6px 12px', cursor: weekOffset === 0 ? 'default' : 'pointer',
-            color: weekOffset === 0 ? 'var(--gray-300)' : 'var(--gray-700)', fontSize: 16,
-          }}
-        >
-          ‹
-        </button>
-        <div style={{ textAlign: 'center', minWidth: 160 }}>
-          <div style={{ fontWeight: 600, fontSize: 15 }}>{weekRange}</div>
-          <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>
-            {pastCutoff && weekOffset === 0
-              ? 'Cutoff has passed'
-              : weekOffset === 0
-              ? `Closes ${cutoffString} at noon`
-              : weekOffset === 1
-              ? 'Next week'
-              : `${weekOffset} weeks out`}
-          </div>
-        </div>
-        <button
-          onClick={() => setWeekOffset(o => Math.min(3, o + 1))}
-          disabled={weekOffset === 3}
-          style={{
-            background: 'none', border: '1px solid var(--gray-200)', borderRadius: 6,
-            padding: '6px 12px', cursor: weekOffset === 3 ? 'default' : 'pointer',
-            color: weekOffset === 3 ? 'var(--gray-300)' : 'var(--gray-700)', fontSize: 16,
-          }}
-        >
-          ›
-        </button>
-        {isEditing && !pastCutoff && (
-          <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 4, background: '#cce5ff', color: '#004085' }}>
-            Order submitted
-          </span>
-        )}
-        {isEditing && pastCutoff && weekOffset === 0 && (
-          <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 4, background: '#f8d7da', color: '#721c24' }}>
-            Cutoff passed — order locked
-          </span>
-        )}
-      </div>
+      <WeekTiles
+        weekOffset={weekOffset}
+        setWeekOffset={setWeekOffset}
+        getWeekRange={getWeekRange}
+        getSelectedSunday={getSelectedSunday}
+        isAdmin={isAdmin}
+        existingOrders={existingOrders}
+        getWeekStart={getWeekStart}
+        getWeekEnd={getWeekEnd}
+        getBaseTuesday={getBaseTuesday}
+      />
+
+      <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 24, marginTop: -8 }}>
+        {pastCutoff && weekOffset === 0
+          ? 'Cutoff has passed for this week.'
+          : `Cutoff is ${cutoffString} at noon.`}
+      </p>
 
       <div style={{
         background: 'var(--gray-50)', border: '1px solid var(--gray-200)',
@@ -760,7 +822,6 @@ function OrderPageInner() {
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--gray-100)' }}>
                   <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
                     <div>{p.name}</div>
-                
                     <div style={{ fontSize: 11, color: underMin ? '#dc2626' : 'var(--gray-400)', marginTop: 1 }}>
                       min {min}/week{wkTotal > 0 ? ` · ${wkTotal} ordered` : ''}
                     </div>
@@ -790,7 +851,6 @@ function OrderPageInner() {
                             cursor: pastCutoff && weekOffset === 0 ? 'not-allowed' : 'text',
                           }}
                         />
-                       
                       </td>
                     )
                   })}
@@ -839,7 +899,7 @@ function OrderPageInner() {
       <div style={{ marginTop: 24, marginBottom: 60 }}>
         {pastCutoff && weekOffset === 0 ? (
           <p style={{ fontSize: 13, color: 'var(--gray-500)' }}>
-            The cutoff for this week has passed. Use the arrow to order for next week.
+            The cutoff for this week has passed. Select another week above to place an order.
           </p>
         ) : (
           <button
