@@ -685,8 +685,9 @@ export default function AdminPage() {
 
       {/* ── PRICING TAB ── */}
       {tab === 'pricing' && (
-        <div style={{ maxWidth: 640 }}>
-          <p className="page-subtitle">Set custom prices per customer. Leave blank to use the default product price.</p>
+  <div style={{ maxWidth: 640 }}>
+    <p style={{fontSize:11,color:'red'}}>prices keys: {Object.keys(prices).length} — selected: {selectedCustomerId?.slice(0,8)}</p>
+    <p className="page-subtitle">Set custom prices per customer. Leave blank to use the default product price.</p>
           <div style={{ marginBottom: 32 }}>
             <label className="form-label">Customer</label>
             <select value={selectedCustomerId || ''} onChange={e => setSelectedCustomerId(e.target.value)}
