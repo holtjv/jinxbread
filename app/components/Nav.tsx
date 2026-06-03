@@ -33,6 +33,8 @@ export default function Nav() {
 
   if (loading) return null
   if (pathname === '/login') return null
+  if (pathname === '/welcome') return null
+  if (pathname === '/onboarding') return null
 
   return (
     <aside className="sidebar">
@@ -57,6 +59,9 @@ export default function Nav() {
       </nav>
       <div className="sidebar-footer">
         <button onClick={handleLogout}>Sign out</button>
+        <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 12 }}>
+          © Jinx Bread LLC 2026
+        </div>
       </div>
     </aside>
   )
