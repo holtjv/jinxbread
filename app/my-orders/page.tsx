@@ -180,11 +180,6 @@ export default function MyOrdersPage() {
     return orders.some(o => getWeekKey(o.delivery_date) === upcomingKey && o.is_par === true)
   }
 
-  function upcomingWeekHasManualOrder(): boolean {
-    const upcomingKey = getUpcomingWeekKey()
-    return orders.some(o => getWeekKey(o.delivery_date) === upcomingKey && o.is_par === false)
-  }
-
   const grouped: Record<string, any[]> = {}
   orders.forEach(o => {
     const key = getWeekKey(o.delivery_date)
@@ -198,7 +193,6 @@ export default function MyOrdersPage() {
   const upcomingSunday = getUpcomingSunday()
   const parTotalLoaves = pars.reduce((t, p) => t + (p.quantity || 0), 0)
 
-  // Par items grouped by window for preview
   const parByWindow: Record<string, { windowLabel: string; items: { name: string; quantity: number }[] }> = {}
   deliveryWindows.forEach(w => {
     const items = pars
@@ -212,41 +206,32 @@ export default function MyOrdersPage() {
     }
   })
 
-  // Merge par preview into the upcoming week's grouped data for display
   const upcomingManualOrders = grouped[upcomingWeekKey] || []
   const upcomingWeekTotal = upcomingManualOrders.reduce((t, o) => t + totalLoaves(o), 0) + (showParPreview ? parTotalLoaves : 0)
-  const upcomingEditable = upcomingManualOrders.some(o => isEditable(o.delivery_date)) ||
-    (showParPreview && isEditable(getUpcomingTuesday().toISOString().split('T')[0]))
+  const upcomingEditable = upcomingManualOrders.some(o => isEditable(o.delivery_date))
   const upcomingEditUrl = upcomingManualOrders.length > 0
     ? getEditUrl(upcomingManualOrders[0].delivery_date)
     : '/order?tue=' + getUpcomingTuesday().toISOString().split('T')[0]
-
-  // All other weeks (not the upcoming week)
+  const hasUpcomingContent = showParPreview || upcomingManualOrders.length > 0
   const otherWeeks = Object.entries(grouped).filter(([key]) => key !== upcomingWeekKey)
 
-  const hasUpcomingContent = showParPreview || upcomingManualOrders.length > 0
-
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
+
+  const sectionLabel = { fontSize: 11, fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 8 }
 
   return (
     <div>
       <h1>My Orders</h1>
 
       {isAdmin && (
-        <div style={{
-          background: '#fffbeb', border: '1px solid #f59e0b',
-          borderRadius: 8, padding: '12px 16px', marginBottom: 24,
-          display: 'flex', alignItems: 'center', gap: 12,
-        }}>
+        <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 8, padding: '12px 16px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap' }}>Viewing as:</span>
           <select
             value={selectedCustomerId || ''}
             onChange={e => handleCustomerChange(e.target.value)}
             style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid #f59e0b', background: '#fff', fontFamily: 'var(--font)', color: 'var(--gray-900)', cursor: 'pointer' }}
           >
-            {allCustomers.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
+            {allCustomers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
       )}
@@ -254,7 +239,6 @@ export default function MyOrdersPage() {
       <p className="page-subtitle">Your submitted orders by week.</p>
 
       <div style={{ marginTop: 24 }}>
-
         {!hasUpcomingContent && orders.length === 0 ? (
           <p style={{ color: 'var(--gray-500)' }}>
             No orders yet.{' '}
@@ -262,7 +246,7 @@ export default function MyOrdersPage() {
           </p>
         ) : (
           <>
-            {/* Upcoming week — merged card */}
+            {/* Upcoming week — single merged card */}
             {hasUpcomingContent && (() => {
               const isExpanded = expandedWeeks.has(upcomingWeekKey)
               const upcomingStatus = upcomingManualOrders.length > 0
@@ -271,24 +255,18 @@ export default function MyOrdersPage() {
 
               return (
                 <div style={{ border: '1px solid var(--gray-200)', borderRadius: 10, marginBottom: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                  {/* Header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', background: 'var(--gray-50)', borderBottom: isExpanded ? '1px solid var(--gray-200)' : 'none' }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Week of {upcomingWeekKey}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>
-                          {upcomingWeekTotal} loaves
-                        </span>
+                        <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{upcomingWeekTotal} loaves</span>
                         <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: upcomingStatus.background, color: upcomingStatus.color, fontWeight: 500 }}>
                           {upcomingStatus.label}
                         </span>
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {showParPreview && (
-                        <a href="/par" style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)', textDecoration: 'none', padding: '7px 16px', borderRadius: 6, border: '1px solid var(--accent)', whiteSpace: 'nowrap' }}>
-                          Edit standing order
-                        </a>
-                      )}
                       {upcomingManualOrders.length > 0 && upcomingEditable && (
                         <a href={upcomingEditUrl} style={{ fontSize: 13, fontWeight: 600, color: '#fff', background: 'var(--accent)', textDecoration: 'none', padding: '7px 16px', borderRadius: 6, whiteSpace: 'nowrap' }}>
                           Edit order
@@ -303,27 +281,17 @@ export default function MyOrdersPage() {
                     </div>
                   </div>
 
+                  {/* Expanded content */}
                   {isExpanded && (
-                    <div>
-                      {/* Par preview section */}
+                    <div style={{ padding: '16px 20px' }}>
+
+                      {/* Standing order section */}
                       {showParPreview && (
-                        <div style={{ padding: '14px 20px', borderBottom: upcomingManualOrders.length > 0 ? '1px solid var(--gray-100)' : 'none', background: '#f8fbff' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                            <div>
-                              <div style={{ fontWeight: 600, fontSize: 14 }}>Standing order</div>
-                              <div style={{ fontSize: 11, color: '#0369a1', marginTop: 2 }}>
-                                Submits Sunday at 1pm · {parTotalLoaves} loaves
-                              </div>
-                            </div>
-                            <a href="/par" style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>
-                              Edit →
-                            </a>
-                          </div>
+                        <div style={{ marginBottom: upcomingManualOrders.length > 0 ? 20 : 0 }}>
+                          <div style={sectionLabel}>Standing order — submits {upcomingSunday.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} at 1pm</div>
                           {Object.values(parByWindow).map((win, idx) => (
-                            <div key={idx} style={{ marginBottom: idx < Object.values(parByWindow).length - 1 ? 10 : 0 }}>
-                              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-500)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                {win.windowLabel}
-                              </div>
+                            <div key={idx} style={{ marginBottom: idx < Object.values(parByWindow).length - 1 ? 12 : 0 }}>
+                              <div style={{ fontSize: 11, color: 'var(--gray-400)', marginBottom: 4 }}>{win.windowLabel}</div>
                               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <tbody>
                                   {win.items.map((item, i) => (
@@ -339,45 +307,34 @@ export default function MyOrdersPage() {
                         </div>
                       )}
 
-                      {/* Manual orders section */}
-                      {upcomingManualOrders.map((order, idx) => {
-                        const colors = statusColors(order.status)
-                        return (
-                          <div key={order.id} style={{ padding: '14px 20px', borderTop: idx > 0 ? '1px solid var(--gray-100)' : 'none' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                              <div>
-                                <div style={{ fontWeight: 600, fontSize: 14 }}>{fmtDate(order.delivery_date)}</div>
-                                <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 2 }}>
-                                  {order.is_par ? 'Standing order' : 'One-time order'} · {totalLoaves(order)} loaves
-                                </div>
-                              </div>
-                              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap', ...colors }}>
-                                {statusLabel(order.status, order.is_par)}
-                              </span>
-                            </div>
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                              <tbody>
-                                {order.order_items?.map((item: any, i: number) => (
-                                  <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
-                                    <td style={{ padding: '4px 0', fontSize: 13 }}>{item.product.name}</td>
-                                    <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>×{item.quantity}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                            {order.customer_notes && (
-                              <p style={{ fontSize: 12, color: 'var(--gray-500)', margin: '8px 0 0 0' }}>Note: {order.customer_notes}</p>
-                            )}
+                      {/* One-time order section */}
+                      {upcomingManualOrders.map((order, idx) => (
+                        <div key={order.id} style={{ paddingTop: idx > 0 ? 16 : 0, borderTop: idx > 0 ? '1px solid var(--gray-100)' : 'none' }}>
+                          <div style={sectionLabel}>
+                            {order.is_par ? 'Standing order' : 'One-time order'} — {fmtDate(order.delivery_date)}
                           </div>
-                        )
-                      })}
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <tbody>
+                              {order.order_items?.map((item: any, i: number) => (
+                                <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
+                                  <td style={{ padding: '4px 0', fontSize: 13 }}>{item.product.name}</td>
+                                  <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>×{item.quantity}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {order.customer_notes && (
+                            <p style={{ fontSize: 12, color: 'var(--gray-500)', margin: '8px 0 0 0' }}>Note: {order.customer_notes}</p>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
               )
             })()}
 
-            {/* All other weeks */}
+            {/* Past weeks */}
             {otherWeeks.map(([weekLabel, weekOrders]) => {
               const isExpanded = expandedWeeks.has(weekLabel)
               const editable = weekOrders.some(o => isEditable(o.delivery_date))
@@ -415,38 +372,27 @@ export default function MyOrdersPage() {
                   </div>
 
                   {isExpanded && (
-                    <div>
-                      {weekOrders.map((order, idx) => {
-                        const colors = statusColors(order.status)
-                        return (
-                          <div key={order.id} style={{ padding: '14px 20px', borderTop: idx > 0 ? '1px solid var(--gray-100)' : 'none' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                              <div>
-                                <div style={{ fontWeight: 600, fontSize: 14 }}>{fmtDate(order.delivery_date)}</div>
-                                <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 2 }}>
-                                  {order.is_par ? 'Standing order' : 'One-time order'} · {totalLoaves(order)} loaves
-                                </div>
-                              </div>
-                              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap', ...colors }}>
-                                {statusLabel(order.status, order.is_par)}
-                              </span>
-                            </div>
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                              <tbody>
-                                {order.order_items?.map((item: any, i: number) => (
-                                  <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
-                                    <td style={{ padding: '4px 0', fontSize: 13 }}>{item.product.name}</td>
-                                    <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>×{item.quantity}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                            {order.customer_notes && (
-                              <p style={{ fontSize: 12, color: 'var(--gray-500)', margin: '8px 0 0 0' }}>Note: {order.customer_notes}</p>
-                            )}
+                    <div style={{ padding: '16px 20px' }}>
+                      {weekOrders.map((order, idx) => (
+                        <div key={order.id} style={{ paddingTop: idx > 0 ? 16 : 0, borderTop: idx > 0 ? '1px solid var(--gray-100)' : 'none' }}>
+                          <div style={sectionLabel}>
+                            {order.is_par ? 'Standing order' : 'One-time order'} — {fmtDate(order.delivery_date)}
                           </div>
-                        )
-                      })}
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <tbody>
+                              {order.order_items?.map((item: any, i: number) => (
+                                <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
+                                  <td style={{ padding: '4px 0', fontSize: 13 }}>{item.product.name}</td>
+                                  <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>×{item.quantity}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {order.customer_notes && (
+                            <p style={{ fontSize: 12, color: 'var(--gray-500)', margin: '8px 0 0 0' }}>Note: {order.customer_notes}</p>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
