@@ -283,7 +283,7 @@ export default function MyOrdersPage() {
                         </span>
                       </div>
                     </div>
-                    <<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {showParPreview && (
                         <a href="/par" style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)', textDecoration: 'none', padding: '7px 16px', borderRadius: 6, border: '1px solid var(--accent)', whiteSpace: 'nowrap' }}>
                           Edit standing order
