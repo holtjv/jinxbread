@@ -15,13 +15,15 @@ export default function ResetPage() {
   const supabase = createClient()
 
   useEffect(() => {
+    // Also check for existing session immediately — handles case where
+    // token was already exchanged before component mounted
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setReady(true)
+    })
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
+      if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') {
         setReady(true)
-      }
-      // If somehow a normal SIGNED_IN fires here (not a recovery), redirect away
-      if (event === 'SIGNED_IN' && !ready) {
-        router.push('/order')
       }
     })
     return () => subscription.unsubscribe()
@@ -33,7 +35,7 @@ export default function ResetPage() {
       setError('Password must be at least 8 characters.')
       return
     }
-    if (done) return // prevent double submit
+    if (done) return
     setLoading(true)
     setError(null)
 
@@ -45,7 +47,6 @@ export default function ResetPage() {
     } else {
       setDone(true)
       setLoading(false)
-      // Sign out all other sessions so old passwords are fully invalidated
       await supabase.auth.signOut({ scope: 'others' })
       router.push('/order')
     }
