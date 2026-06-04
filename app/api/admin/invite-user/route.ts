@@ -13,39 +13,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Email and customer are required' }, { status: 400 })
   }
 
-  const { data: existingCustomer } = await supabase
-    .from('customers')
-    .select('id')
+  // Check if this email is already linked to any customer
+  const { data: existingUser } = await supabase
+    .from('customer_users')
+    .select('customer_id')
     .eq('email', email)
     .maybeSingle()
 
-  if (existingCustomer) {
+  if (existingUser) {
+    // Already linked — just update is_admin on the customer if needed
     const { error: updateError } = await supabase
       .from('customers')
       .update({ is_admin: is_admin || false })
-      .eq('id', existingCustomer.id)
-
+      .eq('id', existingUser.customer_id)
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
   } else {
-    const { data: selectedCustomer } = await supabase
+    // New user — add to customer_users
+    const { error: insertError } = await supabase
+      .from('customer_users')
+      .insert({ customer_id, email })
+    if (insertError) {
+      return NextResponse.json({ error: insertError.message }, { status: 500 })
+    }
+    // Update is_admin on the customer record
+    const { error: updateError } = await supabase
       .from('customers')
-      .select('email')
+      .update({ is_admin: is_admin || false })
       .eq('id', customer_id)
-      .single()
-
-    if (selectedCustomer?.email && selectedCustomer.email !== email) {
-      // TODO: multi-user per customer support
-    } else {
-      const { error: updateError } = await supabase
-        .from('customers')
-        .update({ email, is_admin: is_admin || false })
-        .eq('id', customer_id)
-
-      if (updateError) {
-        return NextResponse.json({ error: updateError.message }, { status: 500 })
-      }
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
   }
 

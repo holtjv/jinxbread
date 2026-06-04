@@ -19,12 +19,12 @@ export default function WelcomePage() {
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
         setReady(true)
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('name')
+        const { data: cu } = await supabase
+          .from('customer_users')
+          .select('customer_id, customers(name)')
           .eq('email', session.user.email)
-          .maybeSingle()
-        if (customer?.name) setCustomerName(customer.name)
+          .single()
+        if (cu) setCustomerName((cu.customers as any)?.name || null)
       }
     }
     checkSession()
@@ -32,40 +32,31 @@ export default function WelcomePage() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if ((event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') && session?.user) {
         setReady(true)
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('name')
+        const { data: cu } = await supabase
+          .from('customer_users')
+          .select('customer_id, customers(name)')
           .eq('email', session.user.email)
-          .maybeSingle()
-        if (customer?.name) setCustomerName(customer.name)
+          .single()
+        if (cu) setCustomerName((cu.customers as any)?.name || null)
       }
     })
-
     return () => subscription.unsubscribe()
   }, [])
 
   async function handleSetPassword(e: React.FormEvent) {
     e.preventDefault()
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
-      return
-    }
+    if (password.length < 8) { setError('Password must be at least 8 characters.'); return }
     setLoading(true)
     setError(null)
     const { error } = await supabase.auth.updateUser({ password })
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      router.push('/onboarding')
-    }
+    if (error) { setError(error.message); setLoading(false) }
+    else { router.push('/onboarding') }
   }
 
   return (
     <div className="login-page">
       <div className="login-card">
         <img src="/logo.png" alt="Jinx Bread" style={{ width: 100, height: 'auto', marginBottom: 24 }} />
-
         {!ready ? (
           <>
             <h1 style={{ marginBottom: 8 }}>Create your account</h1>
@@ -95,27 +86,13 @@ export default function WelcomePage() {
                     placeholder="At least 8 characters"
                     autoFocus
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    style={{
-                      position: 'absolute', right: 10, top: '50%',
-                      transform: 'translateY(-50%)', background: 'none',
-                      border: 'none', cursor: 'pointer', color: '#717171',
-                      fontSize: 16, padding: 0, lineHeight: 1,
-                    }}
-                  >
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#717171', fontSize: 16, padding: 0, lineHeight: 1 }}>
                     {showPassword ? '🙈' : '👁'}
                   </button>
                 </div>
               </div>
               {error && <div className="alert alert-error" style={{ marginBottom: 12 }}>{error}</div>}
-              <button
-                type="submit"
-                disabled={loading}
-                className="btn btn-primary"
-                style={{ width: '100%' }}
-              >
+              <button type="submit" disabled={loading} className="btn btn-primary" style={{ width: '100%' }}>
                 {loading ? 'Saving...' : 'Create account'}
               </button>
             </form>

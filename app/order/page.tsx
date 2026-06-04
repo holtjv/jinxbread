@@ -262,14 +262,14 @@ function OrderPageInner() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data: customer } = await supabase
-        .from('customers')
-        .select('id, is_admin')
+     const { data: cu } = await supabase
+        .from('customer_users')
+        .select('customer_id, customers(id, is_admin)')
         .eq('email', user.email)
         .single()
-
-      if (!customer) return
-      setCustomerId(customer.id)
+      if (!cu) return
+      const customer = cu.customers as any
+      setCustomerId(cu.customer_id)
 
       const [prodsRes, windowsRes] = await Promise.all([
         supabase.from('products').select('*').eq('active', true).order('sort_order'),

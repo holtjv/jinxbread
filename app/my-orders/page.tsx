@@ -36,10 +36,15 @@ export default function MyOrdersPage() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data: customer } = await supabase.from('customers').select('id, is_admin').eq('email', user.email).single()
-      if (!customer) return
-
-      let targetId = customer.id
+      const { data: cu } = await supabase
+        .from('customer_users')
+        .select('customer_id, customers(id, is_admin)')
+        .eq('email', user.email)
+        .single()
+      if (!cu) return
+      const customer = cu.customers as any
+      const cid = cu.customer_id
+      let targetId = cid
 
       if (customer.is_admin) {
         setIsAdmin(true)
@@ -140,13 +145,11 @@ export default function MyOrdersPage() {
     return { label: 'Submitted', ...statusColors('pending') }
   }
 
-  // Build upcoming week range for par preview
   function getUpcomingTuesday(): Date {
     const today = new Date()
     const day = today.getDay()
     let tueDiff = 2 - day
     if (tueDiff <= 0) tueDiff += 7
-    // If past Sunday noon cutoff, bump to following week
     if (day === 0 && today.getHours() >= 12) tueDiff += 7
     const tue = new Date(today)
     tue.setDate(today.getDate() + tueDiff)
@@ -190,7 +193,6 @@ export default function MyOrdersPage() {
   const upcomingWeekKey = getUpcomingWeekKey()
   const upcomingSunday = getUpcomingSunday()
 
-  // Build par preview rows grouped by window
   const parByWindow: Record<string, { windowLabel: string; items: { name: string; quantity: number }[] }> = {}
   deliveryWindows.forEach(w => {
     const items = pars
@@ -205,11 +207,6 @@ export default function MyOrdersPage() {
   })
   const parTotalLoaves = pars.reduce((t, p) => t + (p.quantity || 0), 0)
 
-  const dayShort: Record<string, string> = {
-    monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
-    thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun',
-  }
-
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
   return (
@@ -222,17 +219,11 @@ export default function MyOrdersPage() {
           borderRadius: 8, padding: '12px 16px', marginBottom: 24,
           display: 'flex', alignItems: 'center', gap: 12,
         }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap' }}>
-            Viewing as:
-          </span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap' }}>Viewing as:</span>
           <select
             value={selectedCustomerId || ''}
             onChange={e => handleCustomerChange(e.target.value)}
-            style={{
-              fontSize: 13, padding: '6px 10px', borderRadius: 6,
-              border: '1px solid #f59e0b', background: '#fff',
-              fontFamily: 'var(--font)', color: 'var(--gray-900)', cursor: 'pointer',
-            }}
+            style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid #f59e0b', background: '#fff', fontFamily: 'var(--font)', color: 'var(--gray-900)', cursor: 'pointer' }}
           >
             {allCustomers.map(c => (
               <option key={c.id} value={c.id}>{c.name}</option>
@@ -244,42 +235,19 @@ export default function MyOrdersPage() {
       <p className="page-subtitle">Your submitted orders by week.</p>
 
       <div style={{ marginTop: 24 }}>
-
-        {/* Par preview card — shown when par exists but cron hasn't run yet */}
         {showParPreview && (
-          <div style={{
-            border: '2px dashed var(--gray-300)',
-            borderRadius: 10,
-            marginBottom: 12,
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '16px 20px',
-              background: 'var(--gray-50)',
-            }}>
+          <div style={{ border: '2px dashed var(--gray-300)', borderRadius: 10, marginBottom: 12, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', background: 'var(--gray-50)' }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
-                  Week of {upcomingWeekKey}
-                </div>
+                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Week of {upcomingWeekKey}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>
-                    {parTotalLoaves} loaves
-                  </span>
-                  <span style={{
-                    fontSize: 11, padding: '2px 8px', borderRadius: 4,
-                    background: '#e0f2fe', color: '#0369a1', fontWeight: 500,
-                  }}>
+                  <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{parTotalLoaves} loaves</span>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: '#e0f2fe', color: '#0369a1', fontWeight: 500 }}>
                     Submits Sunday at 1pm
                   </span>
                 </div>
               </div>
-              <a href="/par" style={{
-                fontSize: 13, fontWeight: 600, color: 'var(--accent)',
-                textDecoration: 'none', whiteSpace: 'nowrap',
-              }}>
+              <a href="/par" style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
                 Edit standing order →
               </a>
             </div>
@@ -294,9 +262,7 @@ export default function MyOrdersPage() {
                       {win.items.map((item, i) => (
                         <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
                           <td style={{ padding: '4px 0', fontSize: 13 }}>{item.name}</td>
-                          <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>
-                            ×{item.quantity}
-                          </td>
+                          <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>×{item.quantity}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -324,55 +290,28 @@ export default function MyOrdersPage() {
             const summary = weekStatusSummary(weekOrders)
 
             return (
-              <div key={weekLabel} style={{
-                border: '1px solid var(--gray-200)',
-                borderRadius: 10,
-                marginBottom: 12,
-                overflow: 'hidden',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-              }}>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '16px 20px',
-                  background: 'var(--gray-50)',
-                  borderBottom: isExpanded ? '1px solid var(--gray-200)' : 'none',
-                }}>
+              <div key={weekLabel} style={{ border: '1px solid var(--gray-200)', borderRadius: 10, marginBottom: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', background: 'var(--gray-50)', borderBottom: isExpanded ? '1px solid var(--gray-200)' : 'none' }}>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
-                      Week of {weekLabel}
-                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Week of {weekLabel}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>
                         {totalForWeek} loaves · {weekOrders.length} {weekOrders.length === 1 ? 'delivery' : 'deliveries'}
                       </span>
-                      <span style={{
-                        fontSize: 11, padding: '2px 8px', borderRadius: 4,
-                        background: summary.background, color: summary.color, fontWeight: 500,
-                      }}>
+                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: summary.background, color: summary.color, fontWeight: 500 }}>
                         {summary.label}
                       </span>
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {editable && (
-                      <a href={editUrl} style={{
-                        fontSize: 13, fontWeight: 600, color: '#fff',
-                        background: 'var(--accent)', textDecoration: 'none',
-                        padding: '7px 16px', borderRadius: 6, whiteSpace: 'nowrap',
-                      }}>
+                      <a href={editUrl} style={{ fontSize: 13, fontWeight: 600, color: '#fff', background: 'var(--accent)', textDecoration: 'none', padding: '7px 16px', borderRadius: 6, whiteSpace: 'nowrap' }}>
                         Edit order
                       </a>
                     )}
                     <button
                       onClick={() => toggleWeek(weekLabel)}
-                      style={{
-                        fontSize: 13, fontWeight: 600, color: 'var(--gray-700)',
-                        background: '#fff', border: '1px solid var(--gray-200)',
-                        padding: '7px 16px', borderRadius: 6,
-                        cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'var(--font)',
-                      }}
+                      style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', background: '#fff', border: '1px solid var(--gray-200)', padding: '7px 16px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'var(--font)' }}
                     >
                       {isExpanded ? 'Hide details' : 'View details'}
                     </button>
@@ -384,22 +323,12 @@ export default function MyOrdersPage() {
                     {weekOrders.map((order, idx) => {
                       const colors = statusColors(order.status)
                       return (
-                        <div key={order.id} style={{
-                          padding: '14px 20px',
-                          borderTop: idx > 0 ? '1px solid var(--gray-100)' : 'none',
-                        }}>
+                        <div key={order.id} style={{ padding: '14px 20px', borderTop: idx > 0 ? '1px solid var(--gray-100)' : 'none' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                            <div style={{ fontWeight: 600, fontSize: 14 }}>
-                              {fmtDate(order.delivery_date)}
-                            </div>
+                            <div style={{ fontWeight: 600, fontSize: 14 }}>{fmtDate(order.delivery_date)}</div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>
-                                {totalLoaves(order)} loaves
-                              </span>
-                              <span style={{
-                                fontSize: 11, padding: '2px 8px', borderRadius: 4,
-                                whiteSpace: 'nowrap', ...colors,
-                              }}>
+                              <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{totalLoaves(order)} loaves</span>
+                              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap', ...colors }}>
                                 {statusLabel(order.status, order.is_par)}
                               </span>
                             </div>
@@ -409,17 +338,13 @@ export default function MyOrdersPage() {
                               {order.order_items?.map((item: any, i: number) => (
                                 <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
                                   <td style={{ padding: '4px 0', fontSize: 13 }}>{item.product.name}</td>
-                                  <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>
-                                    ×{item.quantity}
-                                  </td>
+                                  <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>×{item.quantity}</td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                           {order.customer_notes && (
-                            <p style={{ fontSize: 12, color: 'var(--gray-500)', margin: '8px 0 0 0' }}>
-                              Note: {order.customer_notes}
-                            </p>
+                            <p style={{ fontSize: 12, color: 'var(--gray-500)', margin: '8px 0 0 0' }}>Note: {order.customer_notes}</p>
                           )}
                         </div>
                       )

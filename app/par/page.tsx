@@ -45,9 +45,15 @@ export default function ParPage() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data: customer } = await supabase.from('customers').select('id, is_admin').eq('email', user.email).single()
-      if (!customer) return
-      setCustomerId(customer.id)
+      const { data: cu } = await supabase
+        .from('customer_users')
+        .select('customer_id, customers(id, is_admin)')
+        .eq('email', user.email)
+        .single()
+      if (!cu) return
+      const customer = cu.customers as any
+      const cid = cu.customer_id
+      setCustomerId(cid)
       const [prodsRes, windowsRes] = await Promise.all([
         supabase.from('products').select('*').eq('active', true).order('sort_order'),
         supabase.from('delivery_windows').select('*').eq('active', true).order('sort_order'),
@@ -62,13 +68,13 @@ export default function ParPage() {
         setAllCustomers(customers || [])
         const stored = sessionStorage.getItem('adminSelectedCustomerId')
         const storedName = sessionStorage.getItem('adminSelectedCustomerName')
-        const targetId = stored || customer.id
+        const targetId = stored || cid
         setSelectedCustomerId(targetId)
         setSelectedCustomerName(storedName || 'My account')
         await loadPars(targetId, prods, sortedWindows)
       } else {
-        setSelectedCustomerId(customer.id)
-        await loadPars(customer.id, prods, sortedWindows)
+        setSelectedCustomerId(cid)
+        await loadPars(cid, prods, sortedWindows)
       }
       setLoading(false)
     }

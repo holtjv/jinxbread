@@ -15,12 +15,12 @@ export default function Nav() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setLoading(false); return }
-      const { data: customer } = await supabase
-        .from('customers')
-        .select('is_admin')
+      const { data } = await supabase
+        .from('customer_users')
+        .select('customer_id, customers(is_admin)')
         .eq('email', user.email)
         .single()
-      setIsAdmin(customer?.is_admin || false)
+      setIsAdmin((data?.customers as any)?.is_admin || false)
       setLoading(false)
     }
     load()
