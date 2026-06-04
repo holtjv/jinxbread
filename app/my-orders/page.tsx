@@ -75,6 +75,15 @@ export default function MyOrdersPage() {
     return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   }
 
+  function statusColors(status: string) {
+    switch (status) {
+      case 'fulfilled': return { background: '#d4edda', color: '#155724' }
+      case 'confirmed': case 'in_production': return { background: '#cce5ff', color: '#004085' }
+      case 'cancelled': return { background: '#f8d7da', color: '#721c24' }
+      default: return { background: '#fff3cd', color: '#856404' }
+    }
+  }
+
   function statusLabel(status: string, isPar: boolean) {
     const labels: Record<string, string> = {
       pending: 'Submitted', confirmed: 'Confirmed', in_production: 'In Production',
@@ -83,15 +92,6 @@ export default function MyOrdersPage() {
     let label = labels[status] || status
     if (isPar && status === 'pending') label = 'Auto-submitted (par)'
     return label
-  }
-
-  function statusColors(status: string) {
-    switch (status) {
-      case 'fulfilled': return { background: '#d4edda', color: '#155724' }
-      case 'confirmed': case 'in_production': return { background: '#cce5ff', color: '#004085' }
-      case 'cancelled': return { background: '#f8d7da', color: '#721c24' }
-      default: return { background: '#fff3cd', color: '#856404' }
-    }
   }
 
   function totalLoaves(order: any) {
@@ -178,7 +178,7 @@ export default function MyOrdersPage() {
 
   function upcomingWeekHasOrders(): boolean {
     const upcomingKey = getUpcomingWeekKey()
-    return orders.some(o => getWeekKey(o.delivery_date) === upcomingKey)
+    return orders.some(o => getWeekKey(o.delivery_date) === upcomingKey && o.is_par === true)
   }
 
   const grouped: Record<string, any[]> = {}
@@ -235,6 +235,8 @@ export default function MyOrdersPage() {
       <p className="page-subtitle">Your submitted orders by week.</p>
 
       <div style={{ marginTop: 24 }}>
+
+        {/* Par preview card */}
         {showParPreview && (
           <div style={{ border: '2px dashed var(--gray-300)', borderRadius: 10, marginBottom: 12, overflow: 'hidden' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', background: 'var(--gray-50)' }}>
@@ -243,7 +245,7 @@ export default function MyOrdersPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{parTotalLoaves} loaves</span>
                   <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: '#e0f2fe', color: '#0369a1', fontWeight: 500 }}>
-                    Submits Sunday at 1pm
+                    Standing order — submits Sunday at 1pm
                   </span>
                 </div>
               </div>
@@ -270,7 +272,7 @@ export default function MyOrdersPage() {
                 </div>
               ))}
               <p style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 12, marginBottom: 0 }}>
-                Your standing order submits automatically on {upcomingSunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} at 1:00pm.
+                Submits automatically on {upcomingSunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} at 1:00pm.
               </p>
             </div>
           </div>
@@ -325,7 +327,12 @@ export default function MyOrdersPage() {
                       return (
                         <div key={order.id} style={{ padding: '14px 20px', borderTop: idx > 0 ? '1px solid var(--gray-100)' : 'none' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                            <div style={{ fontWeight: 600, fontSize: 14 }}>{fmtDate(order.delivery_date)}</div>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: 14 }}>{fmtDate(order.delivery_date)}</div>
+                              <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 2 }}>
+                                {order.is_par ? 'Standing order' : 'One-time order'}
+                              </div>
+                            </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{totalLoaves(order)} loaves</span>
                               <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap', ...colors }}>
