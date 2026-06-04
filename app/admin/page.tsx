@@ -59,6 +59,11 @@ export default function AdminPage() {
   const [customerError, setCustomerError] = useState<string | null>(null)
   const [customerSuccess, setCustomerSuccess] = useState<string | null>(null)
 
+  // Invite prompt after new customer saved
+  const [invitePrompt, setInvitePrompt] = useState<{ name: string; email: string; customerId: string } | null>(null)
+  const [sendingInvite, setSendingInvite] = useState(false)
+  const [inviteResult, setInviteResult] = useState<string | null>(null)
+
   const [editingProduct, setEditingProduct] = useState<any | null>(null)
   const [productForm, setProductForm] = useState<any>(EMPTY_PRODUCT)
   const [savingProduct, setSavingProduct] = useState(false)
@@ -202,6 +207,8 @@ export default function AdminPage() {
 
   function startEditCustomer(c: any) {
     setEditingCustomer(c)
+    setInvitePrompt(null)
+    setInviteResult(null)
     setCustomerForm({
       name: c.name || '', contact_name: c.contact_name || '', email: c.email || '',
       phone: c.phone || '', type: c.type || 'restaurant', delivery_day: c.delivery_day || 'tuesday',
@@ -213,6 +220,8 @@ export default function AdminPage() {
 
   function startNewCustomer() {
     setEditingCustomer('new')
+    setInvitePrompt(null)
+    setInviteResult(null)
     setCustomerForm(EMPTY_CUSTOMER)
     setCustomerError(null)
     setCustomerSuccess(null)
@@ -230,9 +239,13 @@ export default function AdminPage() {
       address: customerForm.address.trim() || null, notes: customerForm.notes.trim() || null,
       active: customerForm.active,
     }
-    if (editingCustomer === 'new') {
-      const { error } = await supabase.from('customers').insert(payload)
+    const isNew = editingCustomer === 'new'
+    if (isNew) {
+      const { data, error } = await supabase.from('customers').insert(payload).select().single()
       if (error) { setCustomerError(error.message); setSavingCustomer(false); return }
+      if (data) {
+        setInvitePrompt({ name: customerForm.name.trim(), email: customerForm.email.trim(), customerId: data.id })
+      }
       setCustomerSuccess('Customer added')
     } else {
       const { error } = await supabase.from('customers').update(payload).eq('id', editingCustomer.id)
@@ -243,6 +256,25 @@ export default function AdminPage() {
     setEditingCustomer(null)
     await loadData()
     setTimeout(() => setCustomerSuccess(null), 4000)
+  }
+
+  async function handleSendInvite() {
+    if (!invitePrompt) return
+    setSendingInvite(true)
+    const res = await fetch('/api/admin/invite-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: invitePrompt.email, customer_id: invitePrompt.customerId, is_admin: false }),
+    })
+    const data = await res.json()
+    setSendingInvite(false)
+    if (!res.ok) {
+      setInviteResult(`Failed to send invite: ${data.error}`)
+    } else {
+      setInviteResult(`Invite sent to ${invitePrompt.email}`)
+    }
+    setInvitePrompt(null)
+    setTimeout(() => setInviteResult(null), 6000)
   }
 
   function startEditProduct(p: any) {
@@ -487,6 +519,44 @@ export default function AdminPage() {
             {customerSuccess && <span className="alert alert-success" style={{ margin: 0, padding: '6px 12px' }}>✓ {customerSuccess}</span>}
             <button onClick={startNewCustomer} className="btn btn-primary">+ Add customer</button>
           </div>
+
+          {/* Invite prompt */}
+          {invitePrompt && (
+            <div style={{
+              border: '1px solid var(--accent)', borderRadius: 8, padding: '16px 20px',
+              marginBottom: 24, background: 'var(--accent-light)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16,
+            }}>
+              <div style={{ fontSize: 14 }}>
+                Send <strong>{invitePrompt.name}</strong> an invite to log in?
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                <button
+                  onClick={handleSendInvite}
+                  disabled={sendingInvite}
+                  className="btn btn-primary"
+                  style={{ padding: '7px 16px', fontSize: 13 }}
+                >
+                  {sendingInvite ? 'Sending...' : 'Send invite'}
+                </button>
+                <button
+                  onClick={() => setInvitePrompt(null)}
+                  className="btn"
+                  style={{ padding: '7px 16px', fontSize: 13, background: 'var(--gray-100)', color: 'var(--gray-900)' }}
+                >
+                  Skip
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Invite result */}
+          {inviteResult && (
+            <span className="alert alert-success" style={{ display: 'block', marginBottom: 16, padding: '8px 12px' }}>
+              ✓ {inviteResult}
+            </span>
+          )}
+
           {editingCustomer && (
             <div style={{ border: '1px solid var(--gray-200)', borderRadius: 8, padding: 24, marginBottom: 32, background: 'var(--gray-50)' }}>
               <h2 style={{ marginTop: 0, marginBottom: 20 }}>{editingCustomer === 'new' ? 'New customer' : `Edit: ${editingCustomer.name}`}</h2>
@@ -543,6 +613,7 @@ export default function AdminPage() {
               </div>
             </div>
           )}
+
           <table className="data-table">
             <thead>
               <tr><th>Name</th><th>Contact</th><th>Email</th><th>Type</th><th>Active</th><th></th></tr>
@@ -685,8 +756,8 @@ export default function AdminPage() {
 
       {/* ── PRICING TAB ── */}
       {tab === 'pricing' && (
-  <div style={{ maxWidth: 640 }}>
-    <p className="page-subtitle">Set custom prices per customer. Leave blank to use the default product price.</p>
+        <div style={{ maxWidth: 640 }}>
+          <p className="page-subtitle">Set custom prices per customer. Leave blank to use the default product price.</p>
           <div style={{ marginBottom: 32 }}>
             <label className="form-label">Customer</label>
             <select value={selectedCustomerId || ''} onChange={e => setSelectedCustomerId(e.target.value)}
