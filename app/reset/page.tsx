@@ -10,16 +10,21 @@ export default function ResetPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [ready, setReady] = useState(false)
+  const [done, setDone] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
-    // Supabase puts the token in the URL hash — check for active session
-    supabase.auth.onAuthStateChange((event) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
         setReady(true)
       }
+      // If somehow a normal SIGNED_IN fires here (not a recovery), redirect away
+      if (event === 'SIGNED_IN' && !ready) {
+        router.push('/order')
+      }
     })
+    return () => subscription.unsubscribe()
   }, [])
 
   async function handleReset(e: React.FormEvent) {
@@ -28,6 +33,7 @@ export default function ResetPage() {
       setError('Password must be at least 8 characters.')
       return
     }
+    if (done) return // prevent double submit
     setLoading(true)
     setError(null)
 
@@ -37,6 +43,10 @@ export default function ResetPage() {
       setError(error.message)
       setLoading(false)
     } else {
+      setDone(true)
+      setLoading(false)
+      // Sign out all other sessions so old passwords are fully invalidated
+      await supabase.auth.signOut({ scope: 'others' })
       router.push('/order')
     }
   }
@@ -51,6 +61,10 @@ export default function ResetPage() {
             Loading reset link... if this takes more than a few seconds,
             try clicking the link in your email again.
           </p>
+        ) : done ? (
+          <p style={{ color: 'var(--gray-500)', fontSize: 13, marginTop: 8 }}>
+            Password updated. Redirecting...
+          </p>
         ) : (
           <form onSubmit={handleReset} style={{ marginTop: 24 }}>
             <div className="form-field">
@@ -64,22 +78,16 @@ export default function ResetPage() {
                   className="text-input"
                   style={{ paddingRight: 40 }}
                   placeholder="At least 8 characters"
+                  autoComplete="new-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   style={{
-                    position: 'absolute',
-                    right: 10,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: '#717171',
-                    fontSize: 16,
-                    padding: 0,
-                    lineHeight: 1,
+                    position: 'absolute', right: 10, top: '50%',
+                    transform: 'translateY(-50%)', background: 'none',
+                    border: 'none', cursor: 'pointer', color: '#717171',
+                    fontSize: 16, padding: 0, lineHeight: 1,
                   }}
                 >
                   {showPassword ? '🙈' : '👁'}
