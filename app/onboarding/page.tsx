@@ -18,7 +18,7 @@ const steps = [
   },
   {
     title: 'One important thing',
-    detail: 'Orders cut off every Sunday at noon. After that, the week locks. Get your order in before then.',
+    detail: 'Orders cut off every Sunday at noon. After that, the week locks. Get your order in before then.\n\nNote: our order week runs Tuesday through Monday — not the standard Monday through Sunday.',
   },
 ]
 
@@ -41,7 +41,6 @@ export default function OnboardingPage() {
       <div className="login-card" style={{ maxWidth: 480 }}>
         <img src="/logo.png" alt="Jinx Bread" style={{ width: 80, height: 'auto', marginBottom: 28 }} />
 
-        {/* Step indicator */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 36 }}>
           {steps.map((_, i) => (
             <div key={i} style={{
@@ -53,9 +52,11 @@ export default function OnboardingPage() {
         </div>
 
         <h1 style={{ fontSize: 26, marginBottom: 16 }}>{steps[step].title}</h1>
-        <p style={{ fontSize: 15, color: 'var(--gray-600)', lineHeight: 1.6, marginBottom: 0 }}>
-          {steps[step].detail}
-        </p>
+        {steps[step].detail.split('\n\n').map((para, i) => (
+          <p key={i} style={{ fontSize: 15, color: 'var(--gray-600)', lineHeight: 1.6, marginBottom: i < steps[step].detail.split('\n\n').length - 1 ? 12 : 0 }}>
+            {para}
+          </p>
+        ))}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 48 }}>
           {step > 0 ? (
