@@ -9,7 +9,7 @@ export default function MyOrdersPage() {
   const [products, setProducts] = useState<any[]>([])
   const [deliveryWindows, setDeliveryWindows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set())
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set())
   const [isAdmin, setIsAdmin] = useState(false)
   const [allCustomers, setAllCustomers] = useState<any[]>([])
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
@@ -75,6 +75,13 @@ export default function MyOrdersPage() {
     return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   }
 
+  function fmtWeekRange(tuesdayDate: Date): string {
+    const mon = new Date(tuesdayDate)
+    mon.setDate(tuesdayDate.getDate() + 6)
+    const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    return `${fmt(tuesdayDate)}–${fmt(mon)}`
+  }
+
   function statusColors(status: string) {
     switch (status) {
       case 'fulfilled': return { background: '#d4edda', color: '#155724' }
@@ -97,54 +104,18 @@ export default function MyOrdersPage() {
     return order.order_items?.reduce((t: number, i: any) => t + i.quantity, 0) || 0
   }
 
-  function getWeekTuesday(dateStr: string) {
+  function getWeekTuesday(dateStr: string): Date {
     const d = new Date(dateStr + 'T12:00:00')
     const day = d.getDay()
     let tueDiff = 2 - day
     if (tueDiff > 0) tueDiff -= 7
     const tue = new Date(d)
     tue.setDate(d.getDate() + tueDiff)
+    tue.setHours(0, 0, 0, 0)
     return tue
   }
 
-  function getWeekKey(dateStr: string) {
-    const tue = getWeekTuesday(dateStr)
-    const mon = new Date(tue)
-    mon.setDate(tue.getDate() + 6)
-    const fmt = (x: Date) => x.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    return `${fmt(tue)}–${fmt(mon)}`
-  }
-
-  function isEditable(dateStr: string) {
-    const tue = getWeekTuesday(dateStr)
-    const cutoff = new Date(tue)
-    cutoff.setDate(tue.getDate() - 2)
-    cutoff.setHours(12, 0, 0, 0)
-    return new Date() < cutoff
-  }
-
-  function getEditUrl(dateStr: string) {
-    return '/order?tue=' + getWeekTuesday(dateStr).toISOString().split('T')[0]
-  }
-
-  function toggleWeek(key: string) {
-    setExpandedWeeks(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  function weekStatusSummary(weekOrders: any[]) {
-    if (weekOrders.every(o => o.status === 'fulfilled')) return { label: 'Delivered', ...statusColors('fulfilled') }
-    if (weekOrders.some(o => o.status === 'in_production')) return { label: 'In Production', ...statusColors('in_production') }
-    if (weekOrders.some(o => o.status === 'confirmed')) return { label: 'Confirmed', ...statusColors('confirmed') }
-    if (weekOrders.some(o => o.status === 'cancelled')) return { label: 'Cancelled', ...statusColors('cancelled') }
-    return { label: 'Submitted', ...statusColors('pending') }
-  }
-
-  function getUpcomingTuesday(): Date {
+  function getCurrentTuesday(): Date {
     const today = new Date()
     const day = today.getDay()
     let tueDiff = 2 - day
@@ -156,19 +127,48 @@ export default function MyOrdersPage() {
     return tue
   }
 
-  function getUpcomingWeekKey(): string {
-    const tue = getUpcomingTuesday()
+  function getCurrentMonday(): Date {
+    const tue = getCurrentTuesday()
     const mon = new Date(tue)
     mon.setDate(tue.getDate() + 6)
-    const fmt = (x: Date) => x.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    return `${fmt(tue)}–${fmt(mon)}`
+    mon.setHours(23, 59, 59, 999)
+    return mon
   }
 
-  function getUpcomingSunday(): Date {
-    const tue = getUpcomingTuesday()
-    const sun = new Date(tue)
-    sun.setDate(tue.getDate() - 2)
-    return sun
+  function isThisWeek(dateStr: string): boolean {
+    const d = new Date(dateStr + 'T12:00:00')
+    return d >= getCurrentTuesday() && d <= getCurrentMonday()
+  }
+
+  function isFutureWeek(dateStr: string): boolean {
+    const d = new Date(dateStr + 'T12:00:00')
+    return d > getCurrentMonday()
+  }
+
+  function isPastWeek(dateStr: string): boolean {
+    const d = new Date(dateStr + 'T12:00:00')
+    return d < getCurrentTuesday()
+  }
+
+  function isEditable(dateStr: string): boolean {
+    const tue = getWeekTuesday(dateStr)
+    const cutoff = new Date(tue)
+    cutoff.setDate(tue.getDate() - 2)
+    cutoff.setHours(12, 0, 0, 0)
+    return new Date() < cutoff
+  }
+
+  function getEditUrl(dateStr: string): string {
+    return '/order?tue=' + getWeekTuesday(dateStr).toISOString().split('T')[0]
+  }
+
+  function toggleOrder(id: string) {
+    setExpandedOrders(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   function hasPars(): boolean {
@@ -176,48 +176,120 @@ export default function MyOrdersPage() {
   }
 
   function upcomingWeekHasParOrder(): boolean {
-    const upcomingKey = getUpcomingWeekKey()
-    return orders.some(o => getWeekKey(o.delivery_date) === upcomingKey && o.is_par === true)
+    const tue = getCurrentTuesday()
+    const mon = getCurrentMonday()
+    return orders.some(o => {
+      const d = new Date(o.delivery_date + 'T12:00:00')
+      return d >= tue && d <= mon && o.is_par === true
+    })
   }
 
-  const grouped: Record<string, any[]> = {}
-  orders.forEach(o => {
-    const key = getWeekKey(o.delivery_date)
-    if (!grouped[key]) grouped[key] = []
-    grouped[key].push(o)
-  })
-  Object.keys(grouped).forEach(key => grouped[key].sort((a, b) => a.delivery_date.localeCompare(b.delivery_date)))
-
-  const showParPreview = hasPars() && !upcomingWeekHasParOrder()
-  const upcomingWeekKey = getUpcomingWeekKey()
-  const upcomingSunday = getUpcomingSunday()
-  const parTotalLoaves = pars.reduce((t, p) => t + (p.quantity || 0), 0)
-
-  const parByWindow: Record<string, { windowLabel: string; items: { name: string; quantity: number }[] }> = {}
+  // Par summary by delivery window
+  const parByWindow: { windowLabel: string; loaves: number }[] = []
   deliveryWindows.forEach(w => {
-    const items = pars
+    const total = pars
       .filter(p => p.delivery_window_id === w.id && p.quantity > 0)
-      .map(p => ({
-        name: products.find(pr => pr.id === p.product_id)?.name || p.product_id,
-        quantity: p.quantity,
-      }))
-    if (items.length > 0) {
-      parByWindow[w.id] = { windowLabel: w.label || w.day_of_week, items }
+      .reduce((t, p) => t + p.quantity, 0)
+    if (total > 0) {
+      const label = w.label || (w.day_of_week.charAt(0).toUpperCase() + w.day_of_week.slice(1))
+      parByWindow.push({ windowLabel: label, loaves: total })
     }
   })
+  const parTotalLoaves = pars.reduce((t, p) => t + (p.quantity || 0), 0)
+  const showParPreview = hasPars() && !upcomingWeekHasParOrder()
+  const upcomingSunday = (() => {
+    const tue = getCurrentTuesday()
+    const sun = new Date(tue)
+    sun.setDate(tue.getDate() - 2)
+    return sun
+  })()
 
-  const upcomingManualOrders = grouped[upcomingWeekKey] || []
-  const upcomingWeekTotal = upcomingManualOrders.reduce((t, o) => t + totalLoaves(o), 0) + (showParPreview ? parTotalLoaves : 0)
-  const upcomingEditable = upcomingManualOrders.some(o => isEditable(o.delivery_date))
-  const upcomingEditUrl = upcomingManualOrders.length > 0
-    ? getEditUrl(upcomingManualOrders[0].delivery_date)
-    : '/order?tue=' + getUpcomingTuesday().toISOString().split('T')[0]
-  const hasUpcomingContent = showParPreview || upcomingManualOrders.length > 0
-  const otherWeeks = Object.entries(grouped).filter(([key]) => key !== upcomingWeekKey)
+  // Bucket orders
+  const thisWeekOrders = orders.filter(o => isThisWeek(o.delivery_date))
+    .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date))
+
+  // Future orders grouped by week key
+  const futureOrders = orders.filter(o => isFutureWeek(o.delivery_date))
+    .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date))
+  const futureByWeek: Record<string, any[]> = {}
+  futureOrders.forEach(o => {
+    const tue = getWeekTuesday(o.delivery_date)
+    const key = fmtWeekRange(tue)
+    if (!futureByWeek[key]) futureByWeek[key] = []
+    futureByWeek[key].push(o)
+  })
+
+  const pastOrders = orders.filter(o => isPastWeek(o.delivery_date))
+    .sort((a, b) => b.delivery_date.localeCompare(a.delivery_date))
+
+  const hasUpcoming = showParPreview || thisWeekOrders.length > 0 || futureOrders.length > 0
+  const hasAnyContent = hasUpcoming || pastOrders.length > 0
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
-  const sectionLabel = { fontSize: 11, fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 8 }
+  const dividerStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 10px',
+  }
+  const dividerLabelStyle: React.CSSProperties = {
+    fontSize: 11, fontWeight: 600, color: 'var(--gray-500)',
+    textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap',
+  }
+  const dividerLineStyle: React.CSSProperties = {
+    flex: 1, height: 1, background: 'var(--gray-200)',
+  }
+
+  function OrderRow({ order, defaultExpanded = false }: { order: any, defaultExpanded?: boolean }) {
+    const expanded = expandedOrders.has(order.id)
+    const loaves = totalLoaves(order)
+    const colors = statusColors(order.status)
+    const editable = isEditable(order.delivery_date)
+    return (
+      <div style={{ border: '1px solid var(--gray-200)', borderRadius: 8, marginBottom: 6, overflow: 'hidden' }}>
+        <div
+          onClick={() => toggleOrder(order.id)}
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer', background: 'var(--gray-50)' }}
+        >
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--gray-900)', marginBottom: 2 }}>
+              {fmtDate(order.delivery_date)}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+              {order.is_par ? 'Standing order' : 'One-time order'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{loaves} loaves</span>
+            <span style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 4, ...colors }}>
+              {statusLabel(order.status, order.is_par)}
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>{expanded ? '›' : '›'}</span>
+          </div>
+        </div>
+        {expanded && (
+          <div style={{ padding: '10px 16px 12px', borderTop: '1px solid var(--gray-100)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <tbody>
+                {order.order_items?.map((item: any, i: number) => (
+                  <tr key={i} style={{ borderTop: i > 0 ? '1px solid var(--gray-100)' : 'none' }}>
+                    <td style={{ padding: '4px 0', fontSize: 13 }}>{item.product.name}</td>
+                    <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>×{item.quantity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {order.customer_notes && (
+              <p style={{ fontSize: 12, color: 'var(--gray-500)', margin: '8px 0 0 0' }}>Note: {order.customer_notes}</p>
+            )}
+            {editable && (
+              <a href={getEditUrl(order.delivery_date)} style={{ display: 'inline-block', marginTop: 10, fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
+                Edit order →
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -236,171 +308,93 @@ export default function MyOrdersPage() {
         </div>
       )}
 
-      <p className="page-subtitle">Your submitted orders by week.</p>
+      {!hasAnyContent ? (
+        <p style={{ color: 'var(--gray-500)', marginTop: 24 }}>
+          No orders yet.{' '}
+          <a href="/order" style={{ color: 'var(--accent)' }}>Place your first order →</a>
+        </p>
+      ) : (
+        <>
+          {/* Standing order summary card */}
+          {showParPreview && (
+            <div style={{ border: '1px solid var(--gray-200)', borderRadius: 8, padding: '14px 16px', marginBottom: 20, background: 'var(--gray-50)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Standing order
+                </span>
+                <a href="/par" style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
+                  Edit standing order →
+                </a>
+              </div>
+              <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                {parByWindow.map((w, i) => (
+                  <span key={i} style={{ fontSize: 14, color: 'var(--gray-900)' }}>
+                    {w.windowLabel} <span style={{ color: 'var(--gray-500)', fontSize: 13 }}>· {w.loaves} loaves</span>
+                  </span>
+                ))}
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--gray-400)', margin: '8px 0 0 0' }}>
+                Submits automatically {upcomingSunday.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} at 1pm
+              </p>
+            </div>
+          )}
 
-      <div style={{ marginTop: 24 }}>
-        {!hasUpcomingContent && orders.length === 0 ? (
-          <p style={{ color: 'var(--gray-500)' }}>
-            No orders yet.{' '}
-            <a href="/order" style={{ color: 'var(--accent)' }}>Place your first order →</a>
-          </p>
-        ) : (
-          <>
-            {/* Upcoming week — single merged card */}
-            {hasUpcomingContent && (() => {
-              const isExpanded = expandedWeeks.has(upcomingWeekKey)
-              const upcomingStatus = upcomingManualOrders.length > 0
-                ? weekStatusSummary(upcomingManualOrders)
-                : { label: 'Pending', background: '#e0f2fe', color: '#0369a1' }
+          {/* Upcoming section */}
+          {hasUpcoming && (
+            <>
+              <div style={dividerStyle}>
+                <span style={dividerLabelStyle}>Upcoming</span>
+                <div style={dividerLineStyle} />
+              </div>
 
-              return (
-                <div style={{ border: '1px solid var(--gray-200)', borderRadius: 10, marginBottom: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-                  {/* Header */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', background: 'var(--gray-50)', borderBottom: isExpanded ? '1px solid var(--gray-200)' : 'none' }}>
+              {/* This week orders */}
+              {thisWeekOrders.map(order => (
+                <OrderRow key={order.id} order={order} />
+              ))}
+
+              {/* Future weeks — collapsed summary rows */}
+              {Object.entries(futureByWeek).map(([weekLabel, weekOrders]) => {
+                const loaves = weekOrders.reduce((t, o) => t + totalLoaves(o), 0)
+                const editable = weekOrders.some(o => isEditable(o.delivery_date))
+                const editUrl = getEditUrl(weekOrders[0].delivery_date)
+                return (
+                  <div key={weekLabel} style={{ border: '1px dashed var(--gray-300)', borderRadius: 8, marginBottom: 6, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--gray-50)' }}>
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Week of {upcomingWeekKey}</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{upcomingWeekTotal} loaves</span>
-                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: upcomingStatus.background, color: upcomingStatus.color, fontWeight: 500 }}>
-                          {upcomingStatus.label}
-                        </span>
-                      </div>
+                      <span style={{ fontSize: 14, color: 'var(--gray-700)', fontWeight: 500 }}>{weekLabel}</span>
+                      <span style={{ fontSize: 12, color: 'var(--gray-400)', marginLeft: 10 }}>
+                        {weekOrders.length} {weekOrders.length === 1 ? 'order' : 'orders'} · {loaves} loaves
+                      </span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {upcomingManualOrders.length > 0 && upcomingEditable && (
-                        <a href={upcomingEditUrl} style={{ fontSize: 13, fontWeight: 600, color: '#fff', background: 'var(--accent)', textDecoration: 'none', padding: '7px 16px', borderRadius: 6, whiteSpace: 'nowrap' }}>
-                          Edit order
-                        </a>
-                      )}
-                      <button
-                        onClick={() => toggleWeek(upcomingWeekKey)}
-                        style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', background: '#fff', border: '1px solid var(--gray-200)', padding: '7px 16px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'var(--font)' }}
-                      >
-                        {isExpanded ? 'Hide details' : 'View details'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Expanded content */}
-                  {isExpanded && (
-                    <div style={{ padding: '16px 20px' }}>
-
-                      {/* Standing order section */}
-                      {showParPreview && (
-                        <div style={{ marginBottom: upcomingManualOrders.length > 0 ? 20 : 0 }}>
-                          <div style={sectionLabel}>Standing order — submits {upcomingSunday.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} at 1pm</div>
-                          {Object.values(parByWindow).map((win, idx) => (
-                            <div key={idx} style={{ marginBottom: idx < Object.values(parByWindow).length - 1 ? 12 : 0 }}>
-                              <div style={{ fontSize: 11, color: 'var(--gray-400)', marginBottom: 4 }}>{win.windowLabel}</div>
-                              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                <tbody>
-                                  {win.items.map((item, i) => (
-                                    <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
-                                      <td style={{ padding: '4px 0', fontSize: 13 }}>{item.name}</td>
-                                      <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>×{item.quantity}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* One-time order section */}
-                      {upcomingManualOrders.map((order, idx) => (
-                        <div key={order.id} style={{ paddingTop: idx > 0 ? 16 : 0, borderTop: idx > 0 ? '1px solid var(--gray-100)' : 'none' }}>
-                          <div style={sectionLabel}>
-                            {order.is_par ? 'Standing order' : 'One-time order'} — {fmtDate(order.delivery_date)}
-                          </div>
-                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <tbody>
-                              {order.order_items?.map((item: any, i: number) => (
-                                <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
-                                  <td style={{ padding: '4px 0', fontSize: 13 }}>{item.product.name}</td>
-                                  <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>×{item.quantity}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          {order.customer_notes && (
-                            <p style={{ fontSize: 12, color: 'var(--gray-500)', margin: '8px 0 0 0' }}>Note: {order.customer_notes}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
-
-            {/* Past weeks */}
-            {otherWeeks.map(([weekLabel, weekOrders]) => {
-              const isExpanded = expandedWeeks.has(weekLabel)
-              const editable = weekOrders.some(o => isEditable(o.delivery_date))
-              const totalForWeek = weekOrders.reduce((t, o) => t + totalLoaves(o), 0)
-              const editUrl = getEditUrl(weekOrders[0].delivery_date)
-              const summary = weekStatusSummary(weekOrders)
-
-              return (
-                <div key={weekLabel} style={{ border: '1px solid var(--gray-200)', borderRadius: 10, marginBottom: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', background: 'var(--gray-50)', borderBottom: isExpanded ? '1px solid var(--gray-200)' : 'none' }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Week of {weekLabel}</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>
-                          {totalForWeek} loaves · {weekOrders.length} {weekOrders.length === 1 ? 'delivery' : 'deliveries'}
-                        </span>
-                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: summary.background, color: summary.color, fontWeight: 500 }}>
-                          {summary.label}
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 4, background: '#e0f2fe', color: '#0369a1' }}>
+                        Submitted
+                      </span>
                       {editable && (
-                        <a href={editUrl} style={{ fontSize: 13, fontWeight: 600, color: '#fff', background: 'var(--accent)', textDecoration: 'none', padding: '7px 16px', borderRadius: 6, whiteSpace: 'nowrap' }}>
-                          Edit order
+                        <a href={editUrl} style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
+                          Edit →
                         </a>
                       )}
-                      <button
-                        onClick={() => toggleWeek(weekLabel)}
-                        style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', background: '#fff', border: '1px solid var(--gray-200)', padding: '7px 16px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'var(--font)' }}
-                      >
-                        {isExpanded ? 'Hide details' : 'View details'}
-                      </button>
                     </div>
                   </div>
+                )
+              })}
+            </>
+          )}
 
-                  {isExpanded && (
-                    <div style={{ padding: '16px 20px' }}>
-                      {weekOrders.map((order, idx) => (
-                        <div key={order.id} style={{ paddingTop: idx > 0 ? 16 : 0, borderTop: idx > 0 ? '1px solid var(--gray-100)' : 'none' }}>
-                          <div style={sectionLabel}>
-                            {order.is_par ? 'Standing order' : 'One-time order'} — {fmtDate(order.delivery_date)}
-                          </div>
-                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <tbody>
-                              {order.order_items?.map((item: any, i: number) => (
-                                <tr key={i} style={{ borderTop: '1px solid var(--gray-100)' }}>
-                                  <td style={{ padding: '4px 0', fontSize: 13 }}>{item.product.name}</td>
-                                  <td style={{ padding: '4px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>×{item.quantity}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          {order.customer_notes && (
-                            <p style={{ fontSize: 12, color: 'var(--gray-500)', margin: '8px 0 0 0' }}>Note: {order.customer_notes}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </>
-        )}
-      </div>
+          {/* Previous weeks */}
+          {pastOrders.length > 0 && (
+            <>
+              <div style={dividerStyle}>
+                <span style={dividerLabelStyle}>Previous weeks</span>
+                <div style={dividerLineStyle} />
+              </div>
+              {pastOrders.map(order => (
+                <OrderRow key={order.id} order={order} />
+              ))}
+            </>
+          )}
+        </>
+      )}
     </div>
   )
 }
