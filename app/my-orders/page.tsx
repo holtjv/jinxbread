@@ -159,9 +159,7 @@ export default function MyOrdersPage() {
 
   function buildUpcomingRows() {
     const tue = getCurrentTuesday()
-    const mon = getCurrentMonday()
     const upcomingManualOrders = orders.filter(o => isUpcoming(o.delivery_date) && !o.is_par)
-
     const rows: any[] = []
     const weeksToShow = 4
 
@@ -182,15 +180,15 @@ export default function MyOrdersPage() {
         deliveryDate.setDate(weekTue.getDate() + (offsets[w.day_of_week] ?? 0))
         const dateStr = deliveryDate.toISOString().split('T')[0]
 
-        const windowPars = weekIdx === 0
-          ? pars.filter(p => p.delivery_window_id === w.id && p.quantity > 0)
-          : []
+        // Par items for ALL weeks — standing order repeats every week
+        const windowPars = pars.filter(p => p.delivery_window_id === w.id && p.quantity > 0)
         const parItems = windowPars.map(p => ({
           name: products.find(pr => pr.id === p.product_id)?.name || '',
           quantity: p.quantity,
         })).filter(i => i.name)
         const parTotal = parItems.reduce((t, i) => t + i.quantity, 0)
 
+        // Manual order for this window + week
         const manualOrder = upcomingManualOrders.find(o => {
           const od = new Date(o.delivery_date + 'T12:00:00')
           return o.delivery_window_id === w.id && od >= weekTue && od <= weekMon
@@ -228,7 +226,6 @@ export default function MyOrdersPage() {
   const cutoffSunday = getNextCutoffSunday()
   const pastOrders = orders.filter(o => isPast(o.delivery_date))
     .sort((a, b) => b.delivery_date.localeCompare(a.delivery_date))
-
   const hasAnyContent = upcomingRows.length > 0 || pastOrders.length > 0
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
@@ -286,32 +283,34 @@ export default function MyOrdersPage() {
                       onClick={() => toggleRow(row.key)}
                       style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer', background: 'var(--gray-50)' }}
                     >
-                      <div>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--gray-900)', marginBottom: 2 }}>
-                          {row.dateLabel}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
-                          {row.parTotal > 0 && row.addedTotal > 0
-                            ? `${row.parTotal} standing · ${row.addedTotal} added`
-                            : row.parTotal > 0 ? 'Standing order'
-                            : 'One-time order'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 13, color: 'var(--gray-400)', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', minWidth: 10 }}>›</span>
+                        <div>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--gray-900)', marginBottom: 2 }}>
+                            {row.dateLabel}
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+                            {row.parTotal > 0 && row.addedTotal > 0
+                              ? `${row.parTotal} standing · ${row.addedTotal} added`
+                              : row.parTotal > 0 ? 'Standing order'
+                              : 'One-time order'}
+                          </div>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                         <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{row.combinedTotal} loaves</span>
                         {row.editable
-                          ? <a href={row.editUrl} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit →</a>
+                          ? <a href={row.editUrl} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit</a>
                           : <span style={{ fontSize: 13, color: 'var(--gray-400)' }}>Submitted</span>
                         }
-                        <span style={{ fontSize: 14, color: 'var(--gray-400)', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>
                       </div>
                     </div>
                     {expanded && (
-                      <div style={{ padding: '8px 16px 12px 24px', borderTop: '1px solid var(--gray-100)' }}>
+                      <div style={{ padding: '8px 16px 12px 36px', borderTop: '1px solid var(--gray-100)' }}>
                         {row.parItems.length > 0 && (
                           <>
                             {row.addedTotal > 0 && (
-                              <div style={{ fontSize: 11, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 6, marginBottom: 2 }}>Standing</div>
+                              <div style={{ fontSize: 11, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4, marginBottom: 2 }}>Standing</div>
                             )}
                             {row.parItems.map((item: any, i: number) => (
                               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--gray-600)', padding: '2px 0' }}>
@@ -359,25 +358,27 @@ export default function MyOrdersPage() {
                       onClick={() => toggleRow(order.id)}
                       style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer', background: 'var(--gray-50)' }}
                     >
-                      <div>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--gray-900)', marginBottom: 2 }}>
-                          {fmtDate(order.delivery_date)}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
-                          {order.is_par ? 'Standing order' : 'One-time order'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 13, color: 'var(--gray-400)', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', minWidth: 10 }}>›</span>
+                        <div>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--gray-900)', marginBottom: 2 }}>
+                            {fmtDate(order.delivery_date)}
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+                            {order.is_par ? 'Standing order' : 'One-time order'}
+                          </div>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                         <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{loaves} loaves</span>
                         {editable
-                          ? <a href={getEditUrl(order.delivery_date)} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit →</a>
+                          ? <a href={getEditUrl(order.delivery_date)} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit</a>
                           : <span style={{ fontSize: 13, color: 'var(--gray-400)' }}>{statusLabel(order.status, order.is_par)}</span>
                         }
-                        <span style={{ fontSize: 14, color: 'var(--gray-400)', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>
                       </div>
                     </div>
                     {expanded && (
-                      <div style={{ padding: '8px 16px 12px 24px', borderTop: '1px solid var(--gray-100)' }}>
+                      <div style={{ padding: '8px 16px 12px 36px', borderTop: '1px solid var(--gray-100)' }}>
                         {order.order_items?.map((item: any, i: number) => (
                           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--gray-600)', padding: '2px 0' }}>
                             <span>{item.product.name}</span>
