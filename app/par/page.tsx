@@ -73,6 +73,8 @@ export default function ParPage() {
         setSelectedCustomerName(storedName || 'My account')
         await loadPars(targetId, prods, sortedWindows)
       } else {
+        sessionStorage.removeItem('adminSelectedCustomerId')
+        sessionStorage.removeItem('adminSelectedCustomerName')
         setSelectedCustomerId(cid)
         await loadPars(cid, prods, sortedWindows)
       }
@@ -209,9 +211,7 @@ export default function ParPage() {
                     <td>
                       <div>{p.name}</div>
                       {getPrice(p) && (
-                        <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 1 }}>
-                          {getPrice(p)} each
-                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 1 }}>{getPrice(p)} each</div>
                       )}
                       <div style={{ fontSize: 11, color: underMin ? '#dc2626' : 'var(--gray-400)', marginTop: 1 }}>
                         min {min}/week{total > 0 ? ` · ${total} set` : ''}
