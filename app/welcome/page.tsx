@@ -15,9 +15,19 @@ export default function WelcomePage() {
   const supabase = createClient()
 
   useEffect(() => {
+    // Only allow this page if the user arrived via a magic link (SIGNED_IN from URL hash)
+    // Check for hash token in URL — if not present and user is already logged in, redirect away
+    const hash = window.location.hash
+    const hasToken = hash.includes('access_token') || hash.includes('type=invite') || hash.includes('type=recovery')
+
     async function checkSession() {
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
+        if (!hasToken) {
+          // Already authenticated, not arriving via magic link — redirect away
+          router.replace('/order')
+          return
+        }
         setReady(true)
         const { data: cu } = await supabase
           .from('customer_users')
@@ -31,6 +41,10 @@ export default function WelcomePage() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if ((event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') && session?.user) {
+        if (!hasToken && event === 'SIGNED_IN') {
+          // Regular sign-in event, not from a magic link — ignore
+          return
+        }
         setReady(true)
         const { data: cu } = await supabase
           .from('customer_users')
@@ -84,6 +98,7 @@ export default function WelcomePage() {
                     className="text-input"
                     style={{ paddingRight: 40 }}
                     placeholder="At least 8 characters"
+                    autoComplete="new-password"
                     autoFocus
                   />
                   <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#717171', fontSize: 16, padding: 0, lineHeight: 1 }}>
