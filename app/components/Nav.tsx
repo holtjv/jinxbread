@@ -57,9 +57,8 @@ export default function Nav() {
           </a>
         )}
       </nav>
-      <div className="sidebar-footer">
-        
-          href="/settings"
+      <div className="sidebar-footer">        
+          <a href="/settings"
           style={{
             display: 'block',
             fontSize: 13,
