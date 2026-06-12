@@ -59,13 +59,14 @@ export default function Nav() {
       </nav>
       <div className="sidebar-footer">
         
-          href="/settings"
-          style={{
-            display: 'block', fontSize: 13, color: 'rgba(255,255,255,0.65)',
-            textDecoration: 'none', marginBottom: 12,
-            fontWeight: pathname === '/settings' ? 600 : 400,
-            color: pathname === '/settings' ? '#fff' : 'rgba(255,255,255,0.65)',
-          }}
+         href="/settings"
+  style={{
+    display: 'block', fontSize: 13,
+    textDecoration: 'none', marginBottom: 12,
+    fontWeight: pathname === '/settings' ? 600 : 400,
+    color: pathname === '/settings' ? '#fff' : 'rgba(255,255,255,0.65)',
+  }}
+>
         >
           Settings
         </a>
