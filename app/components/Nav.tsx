@@ -43,7 +43,7 @@ export default function Nav() {
       </div>
       <nav className="sidebar-nav">
         <a href="/order" className={pathname === '/order' ? 'active' : ''}>
-          Place an Order
+          One-time Order
         </a>
         <a href="/par" className={pathname === '/par' ? 'active' : ''}>
           Standing Order
@@ -56,11 +56,19 @@ export default function Nav() {
             Admin
           </a>
         )}
-        <a href="/settings" className={pathname === '/settings' ? 'active' : ''}>
-          Settings
-        </a>
       </nav>
       <div className="sidebar-footer">
+        
+          href="/settings"
+          style={{
+            display: 'block', fontSize: 13, color: 'rgba(255,255,255,0.65)',
+            textDecoration: 'none', marginBottom: 12,
+            fontWeight: pathname === '/settings' ? 600 : 400,
+            color: pathname === '/settings' ? '#fff' : 'rgba(255,255,255,0.65)',
+          }}
+        >
+          Settings
+        </a>
         <button onClick={handleLogout}>Sign out</button>
         <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 12 }}>
           © Jinx Bread LLC 2026

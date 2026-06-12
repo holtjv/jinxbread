@@ -690,7 +690,7 @@ if (customer.is_admin) {
 
   return (
     <div>
-      <h1 style={{ marginBottom: 4 }}>Place an Order</h1>
+      <h1 style={{ marginBottom: 4 }}>One-time Order</h1>
 
       {isAdmin && (
         <div style={{
