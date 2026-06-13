@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
 
-type Tab = 'orders' | 'thisweek' | 'pricing' | 'customers' | 'products' | 'users'
+type Tab = 'thisweek' | 'orders' | 'pricing' | 'customers' | 'products' | 'users'
 type OrderStatus = 'pending' | 'confirmed' | 'in_production' | 'fulfilled' | 'cancelled'
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
@@ -20,11 +20,8 @@ const EMPTY_PRODUCT = {
 }
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
-  pending: 'Pending',
-  confirmed: 'Confirmed',
-  in_production: 'In Production',
-  fulfilled: 'Fulfilled',
-  cancelled: 'Cancelled',
+  pending: 'Pending', confirmed: 'Confirmed', in_production: 'In Production',
+  fulfilled: 'Fulfilled', cancelled: 'Cancelled',
 }
 
 const STATUS_COLORS: Record<OrderStatus, { background: string; color: string }> = {
@@ -36,7 +33,7 @@ const STATUS_COLORS: Record<OrderStatus, { background: string; color: string }> 
 }
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<Tab>('orders')
+  const [tab, setTab] = useState<Tab>('thisweek')
   const [orders, setOrders] = useState<any[]>([])
   const [customers, setCustomers] = useState<any[]>([])
   const [allCustomers, setAllCustomers] = useState<any[]>([])
@@ -50,8 +47,8 @@ export default function AdminPage() {
   const [priceSaved, setPriceSaved] = useState(false)
   const [priceError, setPriceError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null)
+  const [ordersWeekOffset, setOrdersWeekOffset] = useState(0)
 
   const [editingCustomer, setEditingCustomer] = useState<any | null>(null)
   const [customerForm, setCustomerForm] = useState<any>(EMPTY_CUSTOMER)
@@ -59,7 +56,6 @@ export default function AdminPage() {
   const [customerError, setCustomerError] = useState<string | null>(null)
   const [customerSuccess, setCustomerSuccess] = useState<string | null>(null)
 
-  // Invite prompt after new customer saved
   const [invitePrompt, setInvitePrompt] = useState<{ name: string; email: string; customerId: string } | null>(null)
   const [sendingInvite, setSendingInvite] = useState(false)
   const [inviteResult, setInviteResult] = useState<string | null>(null)
@@ -77,13 +73,13 @@ export default function AdminPage() {
 
   const supabase = createClient()
 
-  function getUpcomingWeek() {
+  function getWeekBounds(offset: number = 0) {
     const today = new Date()
     const day = today.getDay()
     let tueDiff = 2 - day
     if (tueDiff <= 0) tueDiff += 7
     const tuesday = new Date(today)
-    tuesday.setDate(today.getDate() + tueDiff)
+    tuesday.setDate(today.getDate() + tueDiff + offset * 7)
     tuesday.setHours(0, 0, 0, 0)
     const monday = new Date(tuesday)
     monday.setDate(tuesday.getDate() + 6)
@@ -111,6 +107,12 @@ export default function AdminPage() {
     return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   }
 
+  function fmtWeekRange(tuesday: Date): string {
+    const monday = new Date(tuesday)
+    monday.setDate(tuesday.getDate() + 6)
+    return `${fmtDate(tuesday)}–${fmtDate(monday)}`
+  }
+
   async function loadData() {
     const [ordersRes, customersRes, allCustomersRes, productsRes, allProductsRes, cpRes, windowsRes] = await Promise.all([
       supabase.from('orders').select(`
@@ -126,10 +128,7 @@ export default function AdminPage() {
       supabase.from('delivery_windows').select('*').eq('active', true).order('sort_order'),
     ])
 
-    if (ordersRes.data) {
-      setOrders(ordersRes.data)
-      if (ordersRes.data.length > 0) setSelectedDate(ordersRes.data[0].delivery_date)
-    }
+    if (ordersRes.data) setOrders(ordersRes.data)
     if (customersRes.data) {
       setCustomers(customersRes.data)
       setSelectedCustomerId(customersRes.data[0]?.id || null)
@@ -153,17 +152,34 @@ export default function AdminPage() {
     setPrices(map)
   }, [selectedCustomerId, customerProducts])
 
-  const dates = [...new Set(orders.map((o: any) => o.delivery_date))].sort()
-  const dateOrders = orders.filter((o: any) => o.delivery_date === selectedDate)
-  const totals: Record<string, any> = {}
-  dateOrders.forEach((order: any) => {
-    order.order_items?.forEach((line: any) => {
-      const key = `${line.product.sku}|${line.sliced}`
-      if (!totals[key]) totals[key] = { name: line.product.name, sku: line.product.sku, sliced: line.sliced, quantity: 0 }
-      totals[key].quantity += line.quantity
+  function getWeekOrders(offset: number) {
+    const { tuesday, monday } = getWeekBounds(offset)
+    return orders.filter((o: any) => {
+      const d = new Date(o.delivery_date + 'T12:00:00')
+      return d >= tuesday && d <= monday
     })
-  })
-  const totalsList = Object.values(totals).sort((a: any, b: any) => a.name.localeCompare(b.name))
+  }
+
+  function buildOrderMap(weekOrders: any[]) {
+    const map: Record<string, Record<string, any>> = {}
+    weekOrders.forEach((o: any) => {
+      if (!map[o.customer_id]) map[o.customer_id] = {}
+      map[o.customer_id][o.delivery_window_id] = o
+    })
+    return map
+  }
+
+  function buildProductionTotals(weekOrders: any[]) {
+    const totals: Record<string, any> = {}
+    weekOrders.forEach((order: any) => {
+      order.order_items?.forEach((line: any) => {
+        const key = `${line.product.sku}|${line.sliced}`
+        if (!totals[key]) totals[key] = { name: line.product.name, sku: line.product.sku, sliced: line.sliced, quantity: 0 }
+        totals[key].quantity += line.quantity
+      })
+    })
+    return Object.values(totals).sort((a: any, b: any) => a.name.localeCompare(b.name))
+  }
 
   async function handleStatusChange(orderId: string, newStatus: OrderStatus) {
     setUpdatingStatus(orderId)
@@ -171,19 +187,6 @@ export default function AdminPage() {
     if (!error) setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
     setUpdatingStatus(null)
   }
-
-  const { tuesday, monday, sunday } = getUpcomingWeek()
-  const thisWeekOrders = orders.filter((o: any) => {
-    const d = new Date(o.delivery_date + 'T12:00:00')
-    return d >= tuesday && d <= monday
-  })
-  const weekOrderMap: Record<string, Record<string, any>> = {}
-  thisWeekOrders.forEach((o: any) => {
-    if (!weekOrderMap[o.customer_id]) weekOrderMap[o.customer_id] = {}
-    weekOrderMap[o.customer_id][o.delivery_window_id] = o
-  })
-  const thisWeekCustomerIds = [...new Set(thisWeekOrders.map((o: any) => o.customer_id))]
-  const thisWeekCustomers = customers.filter(c => thisWeekCustomerIds.includes(c.id))
 
   async function handleSavePrices() {
     if (!selectedCustomerId) return
@@ -243,9 +246,7 @@ export default function AdminPage() {
     if (isNew) {
       const { data, error } = await supabase.from('customers').insert(payload).select().single()
       if (error) { setCustomerError(error.message); setSavingCustomer(false); return }
-      if (data) {
-        setInvitePrompt({ name: customerForm.name.trim(), email: customerForm.email.trim(), customerId: data.id })
-      }
+      if (data) setInvitePrompt({ name: customerForm.name.trim(), email: customerForm.email.trim(), customerId: data.id })
       setCustomerSuccess('Customer added')
     } else {
       const { error } = await supabase.from('customers').update(payload).eq('id', editingCustomer.id)
@@ -345,8 +346,8 @@ export default function AdminPage() {
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
 
   const tabLabels: Record<Tab, string> = {
-    orders: 'Orders', thisweek: 'This Week', pricing: 'Customer Pricing',
-    customers: 'Customers', products: 'Products', users: 'Users',
+    thisweek: 'This Week', orders: 'Orders', customers: 'Customers',
+    products: 'Products', users: 'Users', pricing: 'Customer Pricing',
   }
 
   const formFieldStyle = {
@@ -354,15 +355,111 @@ export default function AdminPage() {
     border: '1px solid var(--gray-200)', borderRadius: 6, fontSize: 14,
     fontFamily: 'var(--font)', color: 'var(--gray-900)', background: '#fff', marginTop: 4,
   }
-
   const formRowStyle = { marginBottom: 16 }
+
+  // Week grid renderer — shared between This Week and Orders tabs
+  function WeekGrid({ offset }: { offset: number }) {
+    const { tuesday, monday, sunday } = getWeekBounds(offset)
+    const weekOrders = getWeekOrders(offset)
+    const orderMap = buildOrderMap(weekOrders)
+    const productionTotals = buildProductionTotals(weekOrders)
+    const customerIds = [...new Set(weekOrders.map((o: any) => o.customer_id))]
+    const weekCustomers = customers.filter(c => customerIds.includes(c.id))
+
+    return (
+      <>
+        <p className="page-subtitle">
+          Orders for {fmtDate(tuesday)}–{fmtDate(monday)}. Cutoff is {fmtDateFull(sunday)} at noon.
+        </p>
+
+        {productionTotals.length > 0 && (
+          <>
+            <h2 style={{ fontSize: 15, marginBottom: 8 }}>Production totals</h2>
+            <table className="data-table" style={{ marginBottom: 32 }}>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>SKU</th>
+                  <th>Sliced</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productionTotals.map((t: any, i: number) => (
+                  <tr key={i}>
+                    <td>{t.name}</td>
+                    <td style={{ color: 'var(--gray-500)' }}>{t.sku}</td>
+                    <td>{t.sliced ? 'Yes' : '—'}</td>
+                    <td style={{ fontWeight: 600 }}>{t.quantity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {weekCustomers.length === 0 ? (
+          <p style={{ color: 'var(--gray-500)', marginTop: 24 }}>
+            No orders yet for {fmtDate(tuesday)}–{fmtDate(monday)}.
+            {offset === 0 && ' Standing orders will auto-submit Sunday at 1pm.'}
+          </p>
+        ) : (
+          <div style={{ overflowX: 'auto', marginTop: 16 }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ minWidth: 160 }}>Customer</th>
+                  {deliveryWindows.map(w => {
+                    const winDate = getWindowDate(w.day_of_week, tuesday)
+                    return (
+                      <th key={w.id} className="center" style={{ minWidth: 120 }}>
+                        <div>{winDate.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</div>
+                        <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--gray-500)' }}>
+                          {fmtDate(winDate, { month: 'short', day: 'numeric' })}
+                        </div>
+                      </th>
+                    )
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {weekCustomers.map(c => (
+                  <tr key={c.id}>
+                    <td style={{ fontWeight: 500 }}>{c.name}</td>
+                    {deliveryWindows.map(w => {
+                      const order = orderMap[c.id]?.[w.id]
+                      if (!order) return <td key={w.id} className="center" style={{ color: 'var(--gray-300)' }}>—</td>
+                      const total = order.order_items?.reduce((sum: number, item: any) => sum + item.quantity, 0) || 0
+                      return (
+                        <td key={w.id} className="center">
+                          <div style={{ fontWeight: 600 }}>{total} loaves</div>
+                          <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 2 }}>{order.is_par ? 'par' : 'manual'}</div>
+                          <div style={{ marginTop: 6 }}>
+                            {order.order_items?.map((item: any, i: number) => (
+                              <div key={i} style={{ fontSize: 11, color: 'var(--gray-600)', lineHeight: 1.4 }}>
+                                {item.quantity}× {item.product.sku}{item.sliced ? ' (sl)' : ''}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </>
+    )
+  }
 
   return (
     <div>
       <h1>Admin</h1>
 
       <div style={{ display: 'flex', gap: 4, marginBottom: 32, borderBottom: '2px solid var(--gray-200)', flexWrap: 'wrap' as const }}>
-        {(['orders', 'thisweek', 'customers', 'products', 'users', 'pricing'] as Tab[]).map(t => (
+        {(['thisweek', 'orders', 'customers', 'products', 'users', 'pricing'] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
             padding: '10px 20px', background: 'none', border: 'none',
             borderBottom: tab === t ? '2px solid var(--accent)' : '2px solid transparent',
@@ -374,140 +471,45 @@ export default function AdminPage() {
         ))}
       </div>
 
+      {/* ── THIS WEEK TAB ── */}
+      {tab === 'thisweek' && <WeekGrid offset={0} />}
+
       {/* ── ORDERS TAB ── */}
       {tab === 'orders' && (
         <>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 32 }}>
-            {dates.map((date: any) => (
-              <button key={date} onClick={() => setSelectedDate(date)} style={{
-                padding: '8px 16px',
-                background: selectedDate === date ? 'var(--accent)' : 'var(--gray-100)',
-                color: selectedDate === date ? '#fff' : 'var(--gray-900)',
-                border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 13,
-              }}>
-                {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-              </button>
-            ))}
-          </div>
-
-          {selectedDate && (
-            <>
-              <h2>Production totals</h2>
-              {totalsList.length === 0 ? (
-                <p style={{ color: 'var(--gray-500)' }}>No orders for this date.</p>
-              ) : (
-                <table className="data-table" style={{ marginBottom: 40 }}>
-                  <thead><tr><th>Product</th><th>SKU</th><th>Sliced</th><th>Total</th></tr></thead>
-                  <tbody>
-                    {totalsList.map((t: any, i: number) => (
-                      <tr key={i}>
-                        <td>{t.name}</td>
-                        <td style={{ color: 'var(--gray-500)' }}>{t.sku}</td>
-                        <td>{t.sliced ? 'Yes' : '—'}</td>
-                        <td style={{ fontWeight: 600 }}>{t.quantity}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              <h2>Orders ({dateOrders.length})</h2>
-              {dateOrders.map((order: any) => {
-                const status = order.status as OrderStatus
-                const colors = STATUS_COLORS[status] || STATUS_COLORS.pending
-                return (
-                  <div key={order.id} style={{ border: '1px solid var(--gray-200)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                      <div>
-                        <strong>{order.customer.name}</strong>
-                        {order.is_par && <span style={{ fontSize: 11, color: 'var(--gray-400)', marginLeft: 8 }}>par</span>}
-                      </div>
-                      <select
-                        value={order.status}
-                        disabled={updatingStatus === order.id}
-                        onChange={e => handleStatusChange(order.id, e.target.value as OrderStatus)}
-                        style={{ fontSize: 12, padding: '3px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', fontFamily: 'var(--font)', fontWeight: 500, ...colors }}
-                      >
-                        {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                          <option key={value} value={value}>{label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <tbody>
-                        {order.order_items?.map((line: any, i: number) => (
-                          <tr key={i} style={{ borderBottom: '1px solid var(--gray-100)' }}>
-                            <td style={{ padding: '4px 0' }}>{line.product.name}</td>
-                            <td style={{ padding: '4px 0', color: 'var(--gray-500)', fontSize: 13 }}>{line.sliced ? 'sliced' : ''}</td>
-                            <td style={{ padding: '4px 0', textAlign: 'right' }}>x{line.quantity}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
+            {[0, 1, 2, 3].map(offset => {
+              const { tuesday, monday } = getWeekBounds(offset)
+              const weekRange = fmtWeekRange(tuesday)
+              const hasOrders = getWeekOrders(offset).length > 0
+              const isSelected = ordersWeekOffset === offset
+              const labels = ['This week', 'Next week', '2 weeks out', '3 weeks out']
+              return (
+                <button
+                  key={offset}
+                  onClick={() => setOrdersWeekOffset(offset)}
+                  style={{
+                    flex: '1 1 120px', padding: '10px 12px',
+                    border: `2px solid ${isSelected ? 'var(--accent)' : 'var(--gray-200)'}`,
+                    borderRadius: 8,
+                    background: isSelected ? 'var(--accent-light, #f0f7ff)' : '#fff',
+                    cursor: 'pointer', textAlign: 'left' as const, fontFamily: 'var(--font)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 600, color: isSelected ? 'var(--accent)' : 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+                    {labels[offset]}
                   </div>
-                )
-              })}
-            </>
-          )}
-        </>
-      )}
-
-      {/* ── THIS WEEK TAB ── */}
-      {tab === 'thisweek' && (
-        <>
-          <p className="page-subtitle">
-            Orders for {fmtDate(tuesday)} – {fmtDate(monday)}. Cutoff is {fmtDateFull(sunday)} at noon.
-          </p>
-          {thisWeekCustomers.length === 0 ? (
-            <p style={{ color: 'var(--gray-500)', marginTop: 24 }}>
-              No orders yet for {fmtDate(tuesday)} – {fmtDate(monday)}. Standing orders will auto-submit {fmtDateFull(sunday)} at 1:00pm.
-            </p>
-          ) : (
-            <div style={{ overflowX: 'auto', marginTop: 16 }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th style={{ minWidth: 160 }}>Customer</th>
-                    {deliveryWindows.map(w => {
-                      const winDate = getWindowDate(w.day_of_week, tuesday)
-                      return (
-                        <th key={w.id} className="center" style={{ minWidth: 120 }}>
-                          <div>{winDate.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</div>
-                          <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--gray-500)' }}>
-                            {fmtDate(winDate, { month: 'short', day: 'numeric' })}
-                          </div>
-                        </th>
-                      )
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {thisWeekCustomers.map(c => (
-                    <tr key={c.id}>
-                      <td style={{ fontWeight: 500 }}>{c.name}</td>
-                      {deliveryWindows.map(w => {
-                        const order = weekOrderMap[c.id]?.[w.id]
-                        if (!order) return <td key={w.id} className="center" style={{ color: 'var(--gray-300)' }}>—</td>
-                        const total = order.order_items?.reduce((sum: number, item: any) => sum + item.quantity, 0) || 0
-                        return (
-                          <td key={w.id} className="center">
-                            <div style={{ fontWeight: 600 }}>{total} loaves</div>
-                            <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 2 }}>{order.is_par ? 'par' : 'manual'}</div>
-                            <div style={{ marginTop: 6 }}>
-                              {order.order_items?.map((item: any, i: number) => (
-                                <div key={i} style={{ fontSize: 11, color: 'var(--gray-600)', lineHeight: 1.4 }}>
-                                  {item.quantity}× {item.product.sku}{item.sliced ? ' (sl)' : ''}
-                                </div>
-                              ))}
-                            </div>
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  <div style={{ fontSize: 13, fontWeight: 600, color: isSelected ? 'var(--accent)' : 'var(--gray-900)', marginBottom: 4 }}>
+                    {weekRange}
+                  </div>
+                  {hasOrders && (
+                    <div style={{ fontSize: 10, color: isSelected ? 'var(--accent)' : '#2563eb' }}>Has orders</div>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+          <WeekGrid offset={ordersWeekOffset} />
         </>
       )}
 
@@ -520,104 +522,46 @@ export default function AdminPage() {
             <button onClick={startNewCustomer} className="btn btn-primary">+ Add customer</button>
           </div>
 
-          {/* Invite prompt */}
           {invitePrompt && (
-            <div style={{
-              border: '1px solid var(--accent)', borderRadius: 8, padding: '16px 20px',
-              marginBottom: 24, background: 'var(--accent-light)',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16,
-            }}>
-              <div style={{ fontSize: 14 }}>
-                Send <strong>{invitePrompt.name}</strong> an invite to log in?
-              </div>
+            <div style={{ border: '1px solid var(--accent)', borderRadius: 8, padding: '16px 20px', marginBottom: 24, background: 'var(--accent-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+              <div style={{ fontSize: 14 }}>Send <strong>{invitePrompt.name}</strong> an invite to log in?</div>
               <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                <button
-                  onClick={handleSendInvite}
-                  disabled={sendingInvite}
-                  className="btn btn-primary"
-                  style={{ padding: '7px 16px', fontSize: 13 }}
-                >
+                <button onClick={handleSendInvite} disabled={sendingInvite} className="btn btn-primary" style={{ padding: '7px 16px', fontSize: 13 }}>
                   {sendingInvite ? 'Sending...' : 'Send invite'}
                 </button>
-                <button
-                  onClick={() => setInvitePrompt(null)}
-                  className="btn"
-                  style={{ padding: '7px 16px', fontSize: 13, background: 'var(--gray-100)', color: 'var(--gray-900)' }}
-                >
-                  Skip
-                </button>
+                <button onClick={() => setInvitePrompt(null)} className="btn" style={{ padding: '7px 16px', fontSize: 13, background: 'var(--gray-100)', color: 'var(--gray-900)' }}>Skip</button>
               </div>
             </div>
           )}
 
-          {/* Invite result */}
           {inviteResult && (
-            <span className="alert alert-success" style={{ display: 'block', marginBottom: 16, padding: '8px 12px' }}>
-              ✓ {inviteResult}
-            </span>
+            <span className="alert alert-success" style={{ display: 'block', marginBottom: 16, padding: '8px 12px' }}>✓ {inviteResult}</span>
           )}
 
           {editingCustomer && (
             <div style={{ border: '1px solid var(--gray-200)', borderRadius: 8, padding: 24, marginBottom: 32, background: 'var(--gray-50)' }}>
               <h2 style={{ marginTop: 0, marginBottom: 20 }}>{editingCustomer === 'new' ? 'New customer' : `Edit: ${editingCustomer.name}`}</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px' }}>
-                <div style={formRowStyle}>
-                  <label className="form-label">Name *</label>
-                  <input style={formFieldStyle} value={customerForm.name} onChange={e => setCustomerForm((p: any) => ({ ...p, name: e.target.value }))} />
-                </div>
-                <div style={formRowStyle}>
-                  <label className="form-label">Contact name</label>
-                  <input style={formFieldStyle} value={customerForm.contact_name} onChange={e => setCustomerForm((p: any) => ({ ...p, contact_name: e.target.value }))} />
-                </div>
-                <div style={formRowStyle}>
-                  <label className="form-label">Email *</label>
-                  <input type="email" style={formFieldStyle} value={customerForm.email} onChange={e => setCustomerForm((p: any) => ({ ...p, email: e.target.value }))} />
-                </div>
-                <div style={formRowStyle}>
-                  <label className="form-label">Phone</label>
-                  <input style={formFieldStyle} value={customerForm.phone} onChange={e => setCustomerForm((p: any) => ({ ...p, phone: e.target.value }))} />
-                </div>
-                <div style={formRowStyle}>
-                  <label className="form-label">Type</label>
-                  <select style={formFieldStyle} value={customerForm.type} onChange={e => setCustomerForm((p: any) => ({ ...p, type: e.target.value }))}>
-                    {CUSTOMER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div style={formRowStyle}>
-                  <label className="form-label">Delivery day</label>
-                  <select style={formFieldStyle} value={customerForm.delivery_day} onChange={e => setCustomerForm((p: any) => ({ ...p, delivery_day: e.target.value }))}>
-                    {DAYS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
-                  </select>
-                </div>
-                <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}>
-                  <label className="form-label">Address</label>
-                  <input style={formFieldStyle} value={customerForm.address} onChange={e => setCustomerForm((p: any) => ({ ...p, address: e.target.value }))} />
-                </div>
-                <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}>
-                  <label className="form-label">Notes</label>
-                  <textarea style={{ ...formFieldStyle, resize: 'vertical' }} rows={2} value={customerForm.notes} onChange={e => setCustomerForm((p: any) => ({ ...p, notes: e.target.value }))} />
-                </div>
-                <div style={formRowStyle}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 }}>
-                    <input type="checkbox" checked={customerForm.active} onChange={e => setCustomerForm((p: any) => ({ ...p, active: e.target.checked }))} />
-                    Active
-                  </label>
-                </div>
+                <div style={formRowStyle}><label className="form-label">Name *</label><input style={formFieldStyle} value={customerForm.name} onChange={e => setCustomerForm((p: any) => ({ ...p, name: e.target.value }))} /></div>
+                <div style={formRowStyle}><label className="form-label">Contact name</label><input style={formFieldStyle} value={customerForm.contact_name} onChange={e => setCustomerForm((p: any) => ({ ...p, contact_name: e.target.value }))} /></div>
+                <div style={formRowStyle}><label className="form-label">Email *</label><input type="email" style={formFieldStyle} value={customerForm.email} onChange={e => setCustomerForm((p: any) => ({ ...p, email: e.target.value }))} /></div>
+                <div style={formRowStyle}><label className="form-label">Phone</label><input style={formFieldStyle} value={customerForm.phone} onChange={e => setCustomerForm((p: any) => ({ ...p, phone: e.target.value }))} /></div>
+                <div style={formRowStyle}><label className="form-label">Type</label><select style={formFieldStyle} value={customerForm.type} onChange={e => setCustomerForm((p: any) => ({ ...p, type: e.target.value }))}>{CUSTOMER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                <div style={formRowStyle}><label className="form-label">Delivery day</label><select style={formFieldStyle} value={customerForm.delivery_day} onChange={e => setCustomerForm((p: any) => ({ ...p, delivery_day: e.target.value }))}>{DAYS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}</select></div>
+                <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}><label className="form-label">Address</label><input style={formFieldStyle} value={customerForm.address} onChange={e => setCustomerForm((p: any) => ({ ...p, address: e.target.value }))} /></div>
+                <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}><label className="form-label">Notes</label><textarea style={{ ...formFieldStyle, resize: 'vertical' }} rows={2} value={customerForm.notes} onChange={e => setCustomerForm((p: any) => ({ ...p, notes: e.target.value }))} /></div>
+                <div style={formRowStyle}><label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 }}><input type="checkbox" checked={customerForm.active} onChange={e => setCustomerForm((p: any) => ({ ...p, active: e.target.checked }))} />Active</label></div>
               </div>
               {customerError && <p style={{ color: 'red', marginBottom: 12 }}>{customerError}</p>}
               <div style={{ display: 'flex', gap: 12 }}>
-                <button onClick={handleSaveCustomer} disabled={savingCustomer} className="btn btn-primary">
-                  {savingCustomer ? 'Saving...' : 'Save customer'}
-                </button>
+                <button onClick={handleSaveCustomer} disabled={savingCustomer} className="btn btn-primary">{savingCustomer ? 'Saving...' : 'Save customer'}</button>
                 <button onClick={() => setEditingCustomer(null)} className="btn" style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}>Cancel</button>
               </div>
             </div>
           )}
 
           <table className="data-table">
-            <thead>
-              <tr><th>Name</th><th>Contact</th><th>Email</th><th>Type</th><th>Active</th><th></th></tr>
-            </thead>
+            <thead><tr><th>Name</th><th>Contact</th><th>Email</th><th>Type</th><th>Active</th><th></th></tr></thead>
             <tbody>
               {allCustomers.map(c => (
                 <tr key={c.id}>
@@ -626,9 +570,7 @@ export default function AdminPage() {
                   <td style={{ color: 'var(--gray-500)', fontSize: 13 }}>{c.email}</td>
                   <td style={{ color: 'var(--gray-500)' }}>{c.type}</td>
                   <td>{c.active ? '✓' : <span style={{ color: 'var(--gray-300)' }}>—</span>}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button onClick={() => startEditCustomer(c)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)' }}>Edit</button>
-                  </td>
+                  <td style={{ textAlign: 'right' }}><button onClick={() => startEditCustomer(c)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)' }}>Edit</button></td>
                 </tr>
               ))}
             </tbody>
@@ -649,57 +591,25 @@ export default function AdminPage() {
             <div style={{ border: '1px solid var(--gray-200)', borderRadius: 8, padding: 24, marginBottom: 32, background: 'var(--gray-50)' }}>
               <h2 style={{ marginTop: 0, marginBottom: 20 }}>{editingProduct === 'new' ? 'New product' : `Edit: ${editingProduct.name}`}</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px' }}>
-                <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}>
-                  <label className="form-label">Name *</label>
-                  <input style={formFieldStyle} value={productForm.name} onChange={e => setProductForm((p: any) => ({ ...p, name: e.target.value }))} />
-                </div>
-                <div style={formRowStyle}>
-                  <label className="form-label">SKU *</label>
-                  <input style={formFieldStyle} value={productForm.sku} onChange={e => setProductForm((p: any) => ({ ...p, sku: e.target.value }))} />
-                </div>
-                <div style={formRowStyle}>
-                  <label className="form-label">Min/week</label>
-                  <input type="number" min="0" style={formFieldStyle} value={productForm.minimum_quantity} onChange={e => setProductForm((p: any) => ({ ...p, minimum_quantity: e.target.value }))} />
-                </div>
-                <div style={formRowStyle}>
-                  <label className="form-label">Default price ($)</label>
-                  <input type="number" min="0" step="0.01" style={formFieldStyle} value={productForm.price_cents} onChange={e => setProductForm((p: any) => ({ ...p, price_cents: e.target.value }))} />
-                </div>
-                <div style={formRowStyle}>
-                  <label className="form-label">Unit label</label>
-                  <input style={formFieldStyle} value={productForm.unit_label} onChange={e => setProductForm((p: any) => ({ ...p, unit_label: e.target.value }))} />
-                </div>
-                <div style={formRowStyle}>
-                  <label className="form-label">Sort order</label>
-                  <input type="number" style={formFieldStyle} value={productForm.sort_order} onChange={e => setProductForm((p: any) => ({ ...p, sort_order: e.target.value }))} />
-                </div>
-                <div style={formRowStyle}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, marginTop: 24 }}>
-                    <input type="checkbox" checked={productForm.can_be_sliced} onChange={e => setProductForm((p: any) => ({ ...p, can_be_sliced: e.target.checked }))} />
-                    Can be sliced
-                  </label>
-                </div>
-                <div style={formRowStyle}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, marginTop: 8 }}>
-                    <input type="checkbox" checked={productForm.active} onChange={e => setProductForm((p: any) => ({ ...p, active: e.target.checked }))} />
-                    Active
-                  </label>
-                </div>
+                <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}><label className="form-label">Name *</label><input style={formFieldStyle} value={productForm.name} onChange={e => setProductForm((p: any) => ({ ...p, name: e.target.value }))} /></div>
+                <div style={formRowStyle}><label className="form-label">SKU *</label><input style={formFieldStyle} value={productForm.sku} onChange={e => setProductForm((p: any) => ({ ...p, sku: e.target.value }))} /></div>
+                <div style={formRowStyle}><label className="form-label">Min/week</label><input type="number" min="0" style={formFieldStyle} value={productForm.minimum_quantity} onChange={e => setProductForm((p: any) => ({ ...p, minimum_quantity: e.target.value }))} /></div>
+                <div style={formRowStyle}><label className="form-label">Default price ($)</label><input type="number" min="0" step="0.01" style={formFieldStyle} value={productForm.price_cents} onChange={e => setProductForm((p: any) => ({ ...p, price_cents: e.target.value }))} /></div>
+                <div style={formRowStyle}><label className="form-label">Unit label</label><input style={formFieldStyle} value={productForm.unit_label} onChange={e => setProductForm((p: any) => ({ ...p, unit_label: e.target.value }))} /></div>
+                <div style={formRowStyle}><label className="form-label">Sort order</label><input type="number" style={formFieldStyle} value={productForm.sort_order} onChange={e => setProductForm((p: any) => ({ ...p, sort_order: e.target.value }))} /></div>
+                <div style={formRowStyle}><label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, marginTop: 24 }}><input type="checkbox" checked={productForm.can_be_sliced} onChange={e => setProductForm((p: any) => ({ ...p, can_be_sliced: e.target.checked }))} />Can be sliced</label></div>
+                <div style={formRowStyle}><label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, marginTop: 8 }}><input type="checkbox" checked={productForm.active} onChange={e => setProductForm((p: any) => ({ ...p, active: e.target.checked }))} />Active</label></div>
               </div>
               {productError && <p style={{ color: 'red', marginBottom: 12 }}>{productError}</p>}
               <div style={{ display: 'flex', gap: 12 }}>
-                <button onClick={handleSaveProduct} disabled={savingProduct} className="btn btn-primary">
-                  {savingProduct ? 'Saving...' : 'Save product'}
-                </button>
+                <button onClick={handleSaveProduct} disabled={savingProduct} className="btn btn-primary">{savingProduct ? 'Saving...' : 'Save product'}</button>
                 <button onClick={() => setEditingProduct(null)} className="btn" style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}>Cancel</button>
               </div>
             </div>
           )}
 
           <table className="data-table">
-            <thead>
-              <tr><th>Name</th><th>SKU</th><th>Min/week</th><th>Price</th><th>Sliceable</th><th>Active</th><th></th></tr>
-            </thead>
+            <thead><tr><th>Name</th><th>SKU</th><th>Min/week</th><th>Price</th><th>Sliceable</th><th>Active</th><th></th></tr></thead>
             <tbody>
               {allProducts.map(p => (
                 <tr key={p.id}>
@@ -709,9 +619,7 @@ export default function AdminPage() {
                   <td style={{ color: 'var(--gray-500)' }}>{p.price_cents ? `$${(p.price_cents / 100).toFixed(2)}` : '—'}</td>
                   <td>{p.can_be_sliced ? '✓' : '—'}</td>
                   <td>{p.active ? '✓' : <span style={{ color: 'var(--gray-300)' }}>—</span>}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button onClick={() => startEditProduct(p)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)' }}>Edit</button>
-                  </td>
+                  <td style={{ textAlign: 'right' }}><button onClick={() => startEditProduct(p)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)' }}>Edit</button></td>
                 </tr>
               ))}
             </tbody>
@@ -725,32 +633,24 @@ export default function AdminPage() {
           <p className="page-subtitle">Invite a contact at a customer to log in. They'll receive a magic link by email.</p>
           <div style={formRowStyle}>
             <label className="form-label">Email address</label>
-            <input type="email" style={formFieldStyle} value={userForm.email}
-              onChange={e => setUserForm(p => ({ ...p, email: e.target.value }))}
-              placeholder="contact@restaurant.com" />
+            <input type="email" style={formFieldStyle} value={userForm.email} onChange={e => setUserForm(p => ({ ...p, email: e.target.value }))} placeholder="contact@restaurant.com" />
           </div>
           <div style={formRowStyle}>
             <label className="form-label">Customer</label>
-            <select style={formFieldStyle} value={userForm.customer_id}
-              onChange={e => setUserForm(p => ({ ...p, customer_id: e.target.value }))}>
+            <select style={formFieldStyle} value={userForm.customer_id} onChange={e => setUserForm(p => ({ ...p, customer_id: e.target.value }))}>
               <option value="">Select a customer...</option>
-              {allCustomers.filter(c => c.active).map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
+              {allCustomers.filter(c => c.active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div style={{ ...formRowStyle, marginBottom: 24 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 }}>
-              <input type="checkbox" checked={userForm.is_admin}
-                onChange={e => setUserForm(p => ({ ...p, is_admin: e.target.checked }))} />
+              <input type="checkbox" checked={userForm.is_admin} onChange={e => setUserForm(p => ({ ...p, is_admin: e.target.checked }))} />
               Admin access
             </label>
           </div>
           {userError && <p style={{ color: 'red', marginBottom: 12 }}>{userError}</p>}
           {userSuccess && <span className="alert alert-success" style={{ display: 'block', marginBottom: 16, padding: '8px 12px' }}>✓ {userSuccess}</span>}
-          <button onClick={handleInviteUser} disabled={inviting} className="btn btn-primary">
-            {inviting ? 'Sending invite...' : 'Send invite'}
-          </button>
+          <button onClick={handleInviteUser} disabled={inviting} className="btn btn-primary">{inviting ? 'Sending invite...' : 'Send invite'}</button>
         </div>
       )}
 
@@ -760,48 +660,27 @@ export default function AdminPage() {
           <p className="page-subtitle">Set custom prices per customer. Leave blank to use the default product price.</p>
           <div style={{ marginBottom: 32 }}>
             <label className="form-label">Customer</label>
-            <select value={selectedCustomerId || ''} onChange={e => setSelectedCustomerId(e.target.value)}
-              className="text-input" style={{ maxWidth: 320, marginTop: 8 }}>
+            <select value={selectedCustomerId || ''} onChange={e => setSelectedCustomerId(e.target.value)} className="text-input" style={{ maxWidth: 320, marginTop: 8 }}>
               {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           {selectedCustomerId && (
             <>
               <table className="data-table" style={{ marginBottom: 24 }}>
-                <thead>
-                  <tr>
-                    <th>Product</th>
-                    <th style={{ textAlign: 'right' }}>Default price</th>
-                    <th style={{ textAlign: 'right' }}>Custom price</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>Product</th><th style={{ textAlign: 'right' }}>Default price</th><th style={{ textAlign: 'right' }}>Custom price</th></tr></thead>
                 <tbody>
                   {products.map(p => (
                     <tr key={p.id}>
-                      <td>
-                        <div>{p.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>{p.sku}</div>
-                      </td>
-                      <td style={{ textAlign: 'right', color: 'var(--gray-500)' }}>
-                        {p.price_cents ? `$${(p.price_cents / 100).toFixed(2)}` : '—'}
-                      </td>
+                      <td><div>{p.name}</div><div style={{ fontSize: 11, color: 'var(--gray-500)' }}>{p.sku}</div></td>
+                      <td style={{ textAlign: 'right', color: 'var(--gray-500)' }}>{p.price_cents ? `$${(p.price_cents / 100).toFixed(2)}` : '—'}</td>
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
                           <span style={{ color: 'var(--gray-500)', fontSize: 13 }}>$</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            key={`${selectedCustomerId}-${p.id}`}
+                          <input type="number" min="0" step="0.01" key={`${selectedCustomerId}-${p.id}`}
                             placeholder={p.price_cents ? (p.price_cents / 100).toFixed(2) : '0.00'}
                             value={prices[p.id] ?? ''}
                             onChange={e => setPrices(prev => ({ ...prev, [p.id]: e.target.value }))}
-                            style={{
-                              width: 80, textAlign: 'right', padding: '6px 4px',
-                              border: '1px solid var(--border)', borderRadius: 4,
-                              fontSize: 14, fontFamily: 'var(--font)',
-                              color: 'var(--black)', background: '#fff',
-                            }}
+                            style={{ width: 80, textAlign: 'right', padding: '6px 4px', border: '1px solid var(--border)', borderRadius: 4, fontSize: 14, fontFamily: 'var(--font)', color: 'var(--black)', background: '#fff' }}
                           />
                         </div>
                       </td>
@@ -810,9 +689,7 @@ export default function AdminPage() {
                 </tbody>
               </table>
               <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                <button onClick={handleSavePrices} disabled={savingPrices} className="btn btn-primary">
-                  {savingPrices ? 'Saving...' : 'Save prices'}
-                </button>
+                <button onClick={handleSavePrices} disabled={savingPrices} className="btn btn-primary">{savingPrices ? 'Saving...' : 'Save prices'}</button>
                 {priceSaved && <span className="alert alert-success" style={{ margin: 0, padding: '6px 12px' }}>✓ Prices saved</span>}
                 {priceError && <span className="alert alert-error" style={{ margin: 0, padding: '6px 12px' }}>{priceError}</span>}
               </div>
