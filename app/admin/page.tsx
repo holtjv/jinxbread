@@ -35,6 +35,7 @@ const STATUS_COLORS: Record<OrderStatus, { background: string; color: string }> 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('thisweek')
   const [orders, setOrders] = useState<any[]>([])
+  const [allPars, setAllPars] = useState<any[]>([])
   const [customers, setCustomers] = useState<any[]>([])
   const [allCustomers, setAllCustomers] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
@@ -114,12 +115,16 @@ export default function AdminPage() {
   }
 
   async function loadData() {
-    const [ordersRes, customersRes, allCustomersRes, productsRes, allProductsRes, cpRes, windowsRes] = await Promise.all([
+    const [ordersRes, parsRes, customersRes, allCustomersRes, productsRes, allProductsRes, cpRes, windowsRes] = await Promise.all([
       supabase.from('orders').select(`
         id, delivery_date, delivery_window_id, status, is_par, customer_id,
         customer:customers (id, name, type),
         order_items (quantity, sliced, product_id, product:products (name, sku))
       `).order('delivery_date', { ascending: true }),
+      supabase.from('customer_pars').select(`
+        customer_id, delivery_window_id, quantity,
+        product:products (id, name, sku)
+      `).gt('quantity', 0),
       supabase.from('customers').select('id, name').eq('active', true).order('name'),
       supabase.from('customers').select('*').order('name'),
       supabase.from('products').select('id, name, sku, price_cents, unit_label, minimum_quantity').eq('active', true).order('sort_order'),
@@ -129,6 +134,7 @@ export default function AdminPage() {
     ])
 
     if (ordersRes.data) setOrders(ordersRes.data)
+    if (parsRes.data) setAllPars(parsRes.data)
     if (customersRes.data) {
       setCustomers(customersRes.data)
       setSelectedCustomerId(customersRes.data[0]?.id || null)
@@ -169,8 +175,26 @@ export default function AdminPage() {
     return map
   }
 
-  function buildProductionTotals(weekOrders: any[]) {
+  // Build par map: customer_id -> window_id -> { items, total }
+  function buildParMap() {
+    const map: Record<string, Record<string, { items: { name: string; sku: string; quantity: number }[]; total: number }>> = {}
+    allPars.forEach((p: any) => {
+      if (!map[p.customer_id]) map[p.customer_id] = {}
+      if (!map[p.customer_id][p.delivery_window_id]) map[p.customer_id][p.delivery_window_id] = { items: [], total: 0 }
+      map[p.customer_id][p.delivery_window_id].items.push({
+        name: p.product?.name || '',
+        sku: p.product?.sku || '',
+        quantity: p.quantity,
+      })
+      map[p.customer_id][p.delivery_window_id].total += p.quantity
+    })
+    return map
+  }
+
+  function buildProductionTotals(weekOrders: any[], parMap: Record<string, Record<string, any>>, orderMap: Record<string, Record<string, any>>) {
     const totals: Record<string, any> = {}
+
+    // From submitted orders
     weekOrders.forEach((order: any) => {
       order.order_items?.forEach((line: any) => {
         const key = `${line.product.sku}|${line.sliced}`
@@ -178,6 +202,21 @@ export default function AdminPage() {
         totals[key].quantity += line.quantity
       })
     })
+
+    // From unsubmitted pars
+    Object.entries(parMap).forEach(([customerId, windows]) => {
+      Object.entries(windows).forEach(([windowId, parData]) => {
+        // Only add if no submitted order exists for this customer/window
+        if (!orderMap[customerId]?.[windowId]) {
+          parData.items.forEach((item: any) => {
+            const key = `${item.sku}|false`
+            if (!totals[key]) totals[key] = { name: item.name, sku: item.sku, sliced: false, quantity: 0 }
+            totals[key].quantity += item.quantity
+          })
+        }
+      })
+    })
+
     return Object.values(totals).sort((a: any, b: any) => a.name.localeCompare(b.name))
   }
 
@@ -357,14 +396,18 @@ export default function AdminPage() {
   }
   const formRowStyle = { marginBottom: 16 }
 
-  // Week grid renderer — shared between This Week and Orders tabs
   function WeekGrid({ offset }: { offset: number }) {
     const { tuesday, monday, sunday } = getWeekBounds(offset)
     const weekOrders = getWeekOrders(offset)
     const orderMap = buildOrderMap(weekOrders)
-    const productionTotals = buildProductionTotals(weekOrders)
-    const customerIds = [...new Set(weekOrders.map((o: any) => o.customer_id))]
-    const weekCustomers = customers.filter(c => customerIds.includes(c.id))
+    const parMap = buildParMap()
+    const productionTotals = buildProductionTotals(weekOrders, parMap, orderMap)
+
+    // Build full customer list: anyone with a submitted order OR a par
+    const orderCustomerIds = new Set(weekOrders.map((o: any) => o.customer_id))
+    const parCustomerIds = new Set(Object.keys(parMap))
+    const allCustomerIds = new Set([...orderCustomerIds, ...parCustomerIds])
+    const weekCustomers = customers.filter(c => allCustomerIds.has(c.id))
 
     return (
       <>
@@ -400,8 +443,7 @@ export default function AdminPage() {
 
         {weekCustomers.length === 0 ? (
           <p style={{ color: 'var(--gray-500)', marginTop: 24 }}>
-            No orders yet for {fmtDate(tuesday)}–{fmtDate(monday)}.
-            {offset === 0 && ' Standing orders will auto-submit Sunday at 1pm.'}
+            No orders or standing orders for {fmtDate(tuesday)}–{fmtDate(monday)}.
           </p>
         ) : (
           <div style={{ overflowX: 'auto', marginTop: 16 }}>
@@ -428,21 +470,42 @@ export default function AdminPage() {
                     <td style={{ fontWeight: 500 }}>{c.name}</td>
                     {deliveryWindows.map(w => {
                       const order = orderMap[c.id]?.[w.id]
-                      if (!order) return <td key={w.id} className="center" style={{ color: 'var(--gray-300)' }}>—</td>
-                      const total = order.order_items?.reduce((sum: number, item: any) => sum + item.quantity, 0) || 0
-                      return (
-                        <td key={w.id} className="center">
-                          <div style={{ fontWeight: 600 }}>{total} loaves</div>
-                          <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 2 }}>{order.is_par ? 'par' : 'manual'}</div>
-                          <div style={{ marginTop: 6 }}>
-                            {order.order_items?.map((item: any, i: number) => (
-                              <div key={i} style={{ fontSize: 11, color: 'var(--gray-600)', lineHeight: 1.4 }}>
-                                {item.quantity}× {item.product.sku}{item.sliced ? ' (sl)' : ''}
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      )
+                      const par = parMap[c.id]?.[w.id]
+
+                      if (order) {
+                        // Submitted order — show normally
+                        const total = order.order_items?.reduce((sum: number, item: any) => sum + item.quantity, 0) || 0
+                        return (
+                          <td key={w.id} className="center">
+                            <div style={{ fontWeight: 600 }}>{total} loaves</div>
+                            <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 2 }}>{order.is_par ? 'par' : 'manual'}</div>
+                            <div style={{ marginTop: 6 }}>
+                              {order.order_items?.map((item: any, i: number) => (
+                                <div key={i} style={{ fontSize: 11, color: 'var(--gray-600)', lineHeight: 1.4 }}>
+                                  {item.quantity}× {item.product.sku}{item.sliced ? ' (sl)' : ''}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        )
+                      } else if (par) {
+                        // Unsubmitted par — show muted with "standing" label
+                        return (
+                          <td key={w.id} className="center">
+                            <div style={{ fontWeight: 600, color: 'var(--gray-400)' }}>{par.total} loaves</div>
+                            <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 2 }}>standing</div>
+                            <div style={{ marginTop: 6 }}>
+                              {par.items.map((item: any, i: number) => (
+                                <div key={i} style={{ fontSize: 11, color: 'var(--gray-400)', lineHeight: 1.4 }}>
+                                  {item.quantity}× {item.sku}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        )
+                      } else {
+                        return <td key={w.id} className="center" style={{ color: 'var(--gray-300)' }}>—</td>
+                      }
                     })}
                   </tr>
                 ))}
@@ -471,15 +534,13 @@ export default function AdminPage() {
         ))}
       </div>
 
-      {/* ── THIS WEEK TAB ── */}
       {tab === 'thisweek' && <WeekGrid offset={0} />}
 
-      {/* ── ORDERS TAB ── */}
       {tab === 'orders' && (
         <>
           <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
             {[0, 1, 2, 3].map(offset => {
-              const { tuesday, monday } = getWeekBounds(offset)
+              const { tuesday } = getWeekBounds(offset)
               const weekRange = fmtWeekRange(tuesday)
               const hasOrders = getWeekOrders(offset).length > 0
               const isSelected = ordersWeekOffset === offset
@@ -513,7 +574,6 @@ export default function AdminPage() {
         </>
       )}
 
-      {/* ── CUSTOMERS TAB ── */}
       {tab === 'customers' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
@@ -578,7 +638,6 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ── PRODUCTS TAB ── */}
       {tab === 'products' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
@@ -627,7 +686,6 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ── USERS TAB ── */}
       {tab === 'users' && (
         <div style={{ maxWidth: 480 }}>
           <p className="page-subtitle">Invite a contact at a customer to log in. They'll receive a magic link by email.</p>
@@ -654,7 +712,6 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ── PRICING TAB ── */}
       {tab === 'pricing' && (
         <div style={{ maxWidth: 640 }}>
           <p className="page-subtitle">Set custom prices per customer. Leave blank to use the default product price.</p>
