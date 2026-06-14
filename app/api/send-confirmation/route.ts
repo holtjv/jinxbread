@@ -110,14 +110,14 @@ export async function POST(request: Request) {
 </html>
 `
 
-  const bakerySubject = `${is_editing ? 'Updated' : isPar ? 'Standing' : 'New'} order — ${customer.name} · ${week_range}`
+  const bakerySubject = `Heads Up! ${customer.name} ${is_editing ? 'updated their one-time order' : 'added a one-time order'} — ${week_range}`
 
   const bakeryHtml = `
 <!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
   <p style="margin: 0 0 4px 0; font-size: 16px; font-weight: 700;">${customer.name}</p>
-  <p style="margin: 0 0 20px 0; font-size: 13px; color: #888;">${is_editing ? 'Updated order' : isPar ? 'Standing order auto-submitted' : 'New order'} · ${week_range}</p>
+  <p style="margin: 0 0 20px 0; font-size: 13px; color: #888;">${is_editing ? 'Updated one-time order' : 'New one-time order'} · ${week_range}</p>
   ${orderRowsHtml}
   <p style="margin: 24px 0 0 0;">
     <a href="https://jinxbread.vercel.app/admin"
@@ -129,7 +129,6 @@ export async function POST(request: Request) {
 </html>
 `
 
-  // Send customer email
   const { error: customerError } = await resend.emails.send({
     from: 'Jinx Bread <orders@jinxbread.com>',
     to: customer.email,
@@ -142,7 +141,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: customerError.message }, { status: 500 })
   }
 
-  // Send bakery notification (fire and forget — don't fail the request if this errors)
   resend.emails.send({
     from: 'Jinx Bread <orders@jinxbread.com>',
     to: BAKERY_EMAIL,
