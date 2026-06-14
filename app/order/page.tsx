@@ -59,34 +59,16 @@ function WeekTiles({
               position: 'relative' as const,
             }}
           >
-            <div style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: isSelected ? 'var(--accent)' : 'var(--gray-500)',
-              textTransform: 'uppercase' as const,
-              letterSpacing: '0.05em',
-              marginBottom: 4,
-            }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: isSelected ? 'var(--accent)' : 'var(--gray-500)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>
               {labels[offset]}
             </div>
-            <div style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: isSelected ? 'var(--accent)' : 'var(--gray-900)',
-              marginBottom: 4,
-            }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: isSelected ? 'var(--accent)' : 'var(--gray-900)', marginBottom: 4 }}>
               {range}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {cutoffPassed && (
-                <span style={{ fontSize: 10, color: '#dc2626' }}>Locked</span>
-              )}
-              {hasOrder && !cutoffPassed && (
-                <span style={{ fontSize: 10, color: '#2563eb' }}>Submitted</span>
-              )}
-              {hasOrder && cutoffPassed && (
-                <span style={{ fontSize: 10, color: '#6b7280' }}>Locked</span>
-              )}
+              {cutoffPassed && <span style={{ fontSize: 10, color: '#dc2626' }}>Locked</span>}
+              {hasOrder && !cutoffPassed && <span style={{ fontSize: 10, color: '#2563eb' }}>Submitted</span>}
+              {hasOrder && cutoffPassed && <span style={{ fontSize: 10, color: '#6b7280' }}>Locked</span>}
             </div>
           </button>
         )
@@ -106,6 +88,7 @@ function OrderPageInner() {
   const [parSlicedMap, setParSlicedMap] = useState<Record<string, Record<string, boolean>>>({})
   const [additions, setAdditions] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
   const [existingOrders, setExistingOrders] = useState<any[]>([])
+  const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [notes, setNotes] = useState('')
   const [customerId, setCustomerId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -221,6 +204,30 @@ function OrderPageInner() {
     )
   }
 
+  async function loadFavorites(targetId: string) {
+    const { data } = await supabase
+      .from('customer_favorites')
+      .select('product_id')
+      .eq('customer_id', targetId)
+    setFavorites(new Set((data || []).map((f: any) => f.product_id)))
+  }
+
+  async function toggleFavorite(productId: string) {
+    if (!selectedCustomerId) return
+    const isFav = favorites.has(productId)
+    if (isFav) {
+      await supabase.from('customer_favorites')
+        .delete()
+        .eq('customer_id', selectedCustomerId)
+        .eq('product_id', productId)
+      setFavorites(prev => { const next = new Set(prev); next.delete(productId); return next })
+    } else {
+      await supabase.from('customer_favorites')
+        .insert({ customer_id: selectedCustomerId, product_id: productId })
+      setFavorites(prev => new Set([...prev, productId]))
+    }
+  }
+
   async function loadCustomerData(targetId: string, prods: any[], windows: any[]) {
     const [pricesRes, parsRes, ordersRes] = await Promise.all([
       supabase.from('customer_products').select('product_id, price_cents').eq('customer_id', targetId),
@@ -262,7 +269,7 @@ function OrderPageInner() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-     const { data: cu } = await supabase
+      const { data: cu } = await supabase
         .from('customer_users')
         .select('customer_id, customers(id, is_admin)')
         .eq('email', user.email)
@@ -283,23 +290,26 @@ function OrderPageInner() {
 
       let targetId = cu.customer_id
 
-if (customer.is_admin) {
-  setIsAdmin(true)
-  const { data: customers } = await supabase
-    .from('customers')
-    .select('id, name')
-    .eq('active', true)
-    .order('name')
-  setAllCustomers(customers || [])
-  const stored = sessionStorage.getItem('adminSelectedCustomerId')
-  if (stored) targetId = stored
-} else {
-  sessionStorage.removeItem('adminSelectedCustomerId')
-  sessionStorage.removeItem('adminSelectedCustomerName')
-}
+      if (customer.is_admin) {
+        setIsAdmin(true)
+        const { data: customers } = await supabase
+          .from('customers')
+          .select('id, name')
+          .eq('active', true)
+          .order('name')
+        setAllCustomers(customers || [])
+        const stored = sessionStorage.getItem('adminSelectedCustomerId')
+        if (stored) targetId = stored
+      } else {
+        sessionStorage.removeItem('adminSelectedCustomerId')
+        sessionStorage.removeItem('adminSelectedCustomerName')
+      }
 
       setSelectedCustomerId(targetId)
-      await loadCustomerData(targetId, prods, sortedWindows)
+      await Promise.all([
+        loadCustomerData(targetId, prods, sortedWindows),
+        loadFavorites(targetId),
+      ])
 
       if (!tueParam) {
         const baseTue = getBaseTuesday()
@@ -356,7 +366,10 @@ if (customer.is_admin) {
     setWeekOffset(0)
     setStep('order')
     setError(null)
-    await loadCustomerData(newId, products, deliveryWindows)
+    await Promise.all([
+      loadCustomerData(newId, products, deliveryWindows),
+      loadFavorites(newId),
+    ])
     setDataVersion(v => v + 1)
   }
 
@@ -443,15 +456,17 @@ if (customer.is_admin) {
     return products.filter(p => mergedQty(windowId, p.id) > 0)
   }
 
+  // Sort products: favorites first, then by sort_order
+  const sortedProducts = [...products].sort((a, b) => {
+    const aFav = favorites.has(a.id) ? 0 : 1
+    const bFav = favorites.has(b.id) ? 0 : 1
+    if (aFav !== bFav) return aFav - bFav
+    return (a.sort_order ?? 0) - (b.sort_order ?? 0)
+  })
+
   async function handleSubmit() {
-    if (!selectedCustomerId) {
-      setError('No customer selected.')
-      return
-    }
-    if (totalMergedItems() === 0) {
-      setError('No items in your order.')
-      return
-    }
+    if (!selectedCustomerId) { setError('No customer selected.'); return }
+    if (totalMergedItems() === 0) { setError('No items in your order.'); return }
 
     const violations: string[] = []
     products.forEach(p => {
@@ -461,11 +476,7 @@ if (customer.is_admin) {
         violations.push(`${p.name} requires a minimum of ${min}/week (you have ${total})`)
       }
     })
-    if (violations.length > 0) {
-      setError(violations.join(' · '))
-      setSubmitting(false)
-      return
-    }
+    if (violations.length > 0) { setError(violations.join(' · ')); setSubmitting(false); return }
 
     setSubmitting(true)
     setError(null)
@@ -494,55 +505,33 @@ if (customer.is_admin) {
         orderId = existingOrder.id
         await supabase.from('order_items').delete().eq('order_id', orderId)
         await supabase.from('orders').update({
-          status: 'pending',
-          is_par: false,
-          delivery_date: dateStr,
-          customer_notes: notes || null,
-          submitted_at: new Date().toISOString(),
+          status: 'pending', is_par: false, delivery_date: dateStr,
+          customer_notes: notes || null, submitted_at: new Date().toISOString(),
         }).eq('id', orderId)
       } else {
         const { data: order, error: orderError } = await supabase
           .from('orders')
           .insert({
-            customer_id: selectedCustomerId,
-            delivery_window_id: w.id,
-            delivery_date: dateStr,
-            status: 'pending',
-            is_par: false,
-            customer_notes: notes || null,
-            submitted_at: new Date().toISOString(),
+            customer_id: selectedCustomerId, delivery_window_id: w.id,
+            delivery_date: dateStr, status: 'pending', is_par: false,
+            customer_notes: notes || null, submitted_at: new Date().toISOString(),
           })
-          .select()
-          .single()
+          .select().single()
 
-        if (orderError || !order) {
-          setError(orderError?.message || 'Error creating order')
-          setSubmitting(false)
-          return
-        }
+        if (orderError || !order) { setError(orderError?.message || 'Error creating order'); setSubmitting(false); return }
         orderId = order.id
       }
 
       const orderItems = products
         .filter(p => mergedQty(w.id, p.id) > 0)
         .map(p => ({
-          order_id: orderId,
-          customer_id: selectedCustomerId,
-          product_id: p.id,
-          delivery_window_id: w.id,
-          quantity: mergedQty(w.id, p.id),
-          sliced: mergedSliced(w.id, p.id),
+          order_id: orderId, customer_id: selectedCustomerId,
+          product_id: p.id, delivery_window_id: w.id,
+          quantity: mergedQty(w.id, p.id), sliced: mergedSliced(w.id, p.id),
         }))
 
-      const { error: itemsError } = await supabase
-        .from('order_items')
-        .insert(orderItems)
-
-      if (itemsError) {
-        setError(itemsError.message)
-        setSubmitting(false)
-        return
-      }
+      const { error: itemsError } = await supabase.from('order_items').insert(orderItems)
+      if (itemsError) { setError(itemsError.message); setSubmitting(false); return }
     }
 
     const cutoffSunday = getSelectedSunday(weekOffset)
@@ -553,10 +542,8 @@ if (customer.is_admin) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         customer_id: selectedCustomerId,
-        week_start: getWeekStart(),
-        week_end: getWeekEnd(),
-        week_range: getWeekRange(),
-        cutoff_string: cutoffStr,
+        week_start: getWeekStart(), week_end: getWeekEnd(),
+        week_range: getWeekRange(), cutoff_string: cutoffStr,
         is_editing: isEditing,
       }),
     }).catch(err => console.error('Confirmation email error:', err))
@@ -587,11 +574,7 @@ if (customer.is_admin) {
         </p>
 
         {isAdmin && (
-          <div style={{
-            background: '#fffbeb', border: '1px solid #f59e0b',
-            borderRadius: 8, padding: '10px 16px', marginBottom: 20,
-            fontSize: 13, color: '#92400e', fontWeight: 600,
-          }}>
+          <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 16px', marginBottom: 20, fontSize: 13, color: '#92400e', fontWeight: 600 }}>
             Submitting as: {allCustomers.find(c => c.id === selectedCustomerId)?.name}
           </div>
         )}
@@ -604,9 +587,7 @@ if (customer.is_admin) {
                 <h2 style={{ fontSize: 15, margin: 0 }}>
                   {dayShort[w.day_of_week]}, {getDeliveryDate(w.day_of_week).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
                 </h2>
-                {winTotal > 0 && (
-                  <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{fmtMoney(winTotal)}</span>
-                )}
+                {winTotal > 0 && <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{fmtMoney(winTotal)}</span>}
               </div>
               <table className="data-table" style={{ marginBottom: 0 }}>
                 <thead>
@@ -628,18 +609,10 @@ if (customer.is_admin) {
                           {mergedSliced(w.id, p.id) && <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>sliced</div>}
                           {getPrice(p) && <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>${getPrice(p)} each</div>}
                         </td>
-                        <td className="center" style={{ color: 'var(--gray-500)' }}>
-                          {parQtyMap[w.id]?.[p.id] || '—'}
-                        </td>
-                        <td className="center" style={{ color: 'var(--gray-500)' }}>
-                          {additions[w.id]?.[p.id]?.quantity || '—'}
-                        </td>
-                        <td className="center" style={{ fontWeight: 600 }}>
-                          {mergedQty(w.id, p.id)}
-                        </td>
-                        <td style={{ textAlign: 'right', fontSize: 13, color: 'var(--gray-600)' }}>
-                          {lineCents > 0 ? fmtMoney(lineCents) : '—'}
-                        </td>
+                        <td className="center" style={{ color: 'var(--gray-500)' }}>{parQtyMap[w.id]?.[p.id] || '—'}</td>
+                        <td className="center" style={{ color: 'var(--gray-500)' }}>{additions[w.id]?.[p.id]?.quantity || '—'}</td>
+                        <td className="center" style={{ fontWeight: 600 }}>{mergedQty(w.id, p.id)}</td>
+                        <td style={{ textAlign: 'right', fontSize: 13, color: 'var(--gray-600)' }}>{lineCents > 0 ? fmtMoney(lineCents) : '—'}</td>
                       </tr>
                     )
                   })}
@@ -648,9 +621,7 @@ if (customer.is_admin) {
                     <td className="center">{colParTotal(w.id) || '—'}</td>
                     <td className="center">{colAddTotal(w.id) || '—'}</td>
                     <td className="center">{colMergedTotal(w.id)}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                      {winTotal > 0 ? fmtMoney(winTotal) : '—'}
-                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{winTotal > 0 ? fmtMoney(winTotal) : '—'}</td>
                   </tr>
                 </tbody>
               </table>
@@ -659,27 +630,17 @@ if (customer.is_admin) {
         })}
 
         {weekTotal > 0 && (
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '14px 0', borderTop: '2px solid var(--gray-200)', marginBottom: 24,
-          }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: '2px solid var(--gray-200)', marginBottom: 24 }}>
             <span style={{ fontWeight: 700, fontSize: 15 }}>Week total</span>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{fmtMoney(weekTotal)}</span>
           </div>
         )}
 
-        {notes && (
-          <p style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 24 }}>
-            Notes: {notes}
-          </p>
-        )}
-
+        {notes && <p style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 24 }}>Notes: {notes}</p>}
         {error && <p style={{ color: 'red', marginBottom: 16 }}>{error}</p>}
 
         <div style={{ display: 'flex', gap: 12, marginBottom: 60 }}>
-          <button onClick={() => setStep('order')} className="btn" style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}>
-            ← Edit order
-          </button>
+          <button onClick={() => setStep('order')} className="btn" style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}>← Edit order</button>
           <button onClick={handleSubmit} disabled={submitting} className="btn btn-primary">
             {submitting ? 'Submitting...' : `${isEditing ? 'Update' : 'Submit'} order (${totalMergedItems()} loaves)`}
           </button>
@@ -693,26 +654,14 @@ if (customer.is_admin) {
       <h1 style={{ marginBottom: 4 }}>One-time Order</h1>
 
       {isAdmin && (
-        <div style={{
-          background: '#fffbeb', border: '1px solid #f59e0b',
-          borderRadius: 8, padding: '12px 16px', marginBottom: 24,
-          display: 'flex', alignItems: 'center', gap: 12,
-        }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap' }}>
-            Ordering as:
-          </span>
+        <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 8, padding: '12px 16px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap' }}>Ordering as:</span>
           <select
             value={selectedCustomerId || ''}
             onChange={e => handleCustomerChange(e.target.value)}
-            style={{
-              fontSize: 13, padding: '6px 10px', borderRadius: 6,
-              border: '1px solid #f59e0b', background: '#fff',
-              fontFamily: 'var(--font)', color: 'var(--gray-900)', cursor: 'pointer',
-            }}
+            style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid #f59e0b', background: '#fff', fontFamily: 'var(--font)', color: 'var(--gray-900)', cursor: 'pointer' }}
           >
-            {allCustomers.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
+            {allCustomers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
       )}
@@ -730,26 +679,16 @@ if (customer.is_admin) {
       />
 
       <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 24, marginTop: -8 }}>
-        {pastCutoff && weekOffset === 0
-          ? 'Cutoff has passed for this week.'
-          : `Cutoff is ${cutoffString} at noon.`}
+        {pastCutoff && weekOffset === 0 ? 'Cutoff has passed for this week.' : `Cutoff is ${cutoffString} at noon.`}
       </p>
 
-      <div style={{
-        background: 'var(--gray-50)', border: '1px solid var(--gray-200)',
-        borderRadius: 8, padding: 16, marginBottom: 32,
-      }}>
+      <div style={{ background: 'var(--gray-50)', border: '1px solid var(--gray-200)', borderRadius: 8, padding: 16, marginBottom: 32 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: hasAnyPar() ? 12 : 0 }}>
           <h2 style={{ fontSize: 15, margin: 0 }}>Standing Order</h2>
-          <a href="/par" style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 500 }}>
-            Edit standing order →
-          </a>
+          <a href="/par" style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 500 }}>Edit standing order →</a>
         </div>
         {!hasAnyPar() ? (
-          <p style={{ color: 'var(--gray-500)', fontSize: 13, margin: 0 }}>
-            No standing order set.{' '}
-            <a href="/par" style={{ color: 'var(--accent)' }}>Set one up →</a>
-          </p>
+          <p style={{ color: 'var(--gray-500)', fontSize: 13, margin: 0 }}>No standing order set. <a href="/par" style={{ color: 'var(--accent)' }}>Set one up →</a></p>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -802,6 +741,7 @@ if (customer.is_admin) {
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 600 }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--gray-200)' }}>
+              <th style={{ width: 28 }}></th>
               <th style={{ textAlign: 'left', padding: '8px 12px 8px 0', minWidth: 200 }}>Product</th>
               <th style={{ textAlign: 'right', padding: '8px 16px 8px 0', minWidth: 60, color: 'var(--gray-400)', fontWeight: 'normal', fontSize: 13 }}>Price</th>
               {deliveryWindows.map(w => (
@@ -816,13 +756,27 @@ if (customer.is_admin) {
             </tr>
           </thead>
           <tbody>
-            {products.map(p => {
+            {sortedProducts.map(p => {
               const wkTotal = weeklyMergedTotal(p.id)
               const min = p.minimum_quantity ?? 10
               const underMin = wkTotal > 0 && wkTotal < min
               const lineTotal = weeklyLineTotalCents(p)
+              const isFav = favorites.has(p.id)
               return (
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--gray-100)' }}>
+                  <td style={{ padding: '6px 8px 6px 0', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <button
+                      onClick={() => toggleFavorite(p.id)}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        fontSize: 16, padding: 0, lineHeight: 1,
+                        color: isFav ? '#f59e0b' : 'var(--gray-300)',
+                      }}
+                      title={isFav ? 'Remove from favorites' : 'Add to favorites'}
+                    >
+                      ★
+                    </button>
+                  </td>
                   <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
                     <div>{p.name}</div>
                     <div style={{ fontSize: 11, color: underMin ? '#dc2626' : 'var(--gray-400)', marginTop: 1 }}>
@@ -864,6 +818,7 @@ if (customer.is_admin) {
               )
             })}
             <tr style={{ borderTop: '2px solid var(--gray-200)', fontWeight: 600 }}>
+              <td></td>
               <td style={{ padding: '8px 12px 8px 0', fontSize: 13, color: 'var(--gray-500)' }}>Additional total</td>
               <td></td>
               {deliveryWindows.map(w => (
@@ -907,22 +862,14 @@ if (customer.is_admin) {
         ) : (
           <button
             onClick={() => {
-              if (totalMergedItems() === 0) {
-                setError('Please add at least one item before continuing.')
-                return
-              }
+              if (totalMergedItems() === 0) { setError('Please add at least one item before continuing.'); return }
               const violations: string[] = []
               products.forEach(p => {
                 const total = weeklyMergedTotal(p.id)
                 const min = p.minimum_quantity ?? 10
-                if (total > 0 && total < min) {
-                  violations.push(`${p.name} requires a minimum of ${min}/week (you have ${total})`)
-                }
+                if (total > 0 && total < min) violations.push(`${p.name} requires a minimum of ${min}/week (you have ${total})`)
               })
-              if (violations.length > 0) {
-                setError(violations.join(' · '))
-                return
-              }
+              if (violations.length > 0) { setError(violations.join(' · ')); return }
               setError(null)
               setStep('confirm')
             }}
