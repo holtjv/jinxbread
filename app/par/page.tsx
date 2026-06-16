@@ -199,16 +199,31 @@ export default function ParPage() {
         </div>
       )}
       <p className="page-subtitle">Repeats every week until you change it. Set a quantity to 0 to remove a product.</p>
-      <div style={{ overflowX: 'auto' }}>
-        <table className="data-table">
+      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '70vh' }}>
+        <table className="data-table" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr>
-              <th style={{ minWidth: 200 }}>Product</th>
-              {deliveryWindows.map(w => (
-                <th key={w.id} className="center" style={{ minWidth: 80 }}>
-                  <div className="day-header">{dayShort[w.day_of_week]}</div>
-                </th>
-              ))}
+              <th style={{ minWidth: 200, position: 'sticky', top: 0, zIndex: 2, background: '#fff' }}>Product</th>
+              {deliveryWindows.map(w => {
+                const isMonday = w.day_of_week === 'monday'
+                return (
+                  <th
+                    key={w.id}
+                    className="center"
+                    style={{
+                      minWidth: 80,
+                      position: 'sticky',
+                      top: 0,
+                      zIndex: 1,
+                      background: isMonday ? '#fff7ed' : '#fff',
+                    }}
+                  >
+                    <div className="day-header" style={isMonday ? { color: '#c2410c', fontWeight: 700 } : {}}>
+                      {dayShort[w.day_of_week]}
+                    </div>
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>

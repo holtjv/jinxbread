@@ -420,6 +420,19 @@ function OrderPageInner() {
     }))
   }
 
+  function clearProductRow(productId: string) {
+    setAdditions(prev => {
+      const next = { ...prev }
+      deliveryWindows.forEach((w: any) => {
+        next[w.id] = {
+          ...next[w.id],
+          [productId]: { quantity: 0, sliced: next[w.id]?.[productId]?.sliced || false },
+        }
+      })
+      return next
+    })
+  }
+
   function mergedQty(windowId: string, productId: string): number {
     return (parQtyMap[windowId]?.[productId] || 0) + (additions[windowId]?.[productId]?.quantity || 0)
   }
@@ -430,6 +443,10 @@ function OrderPageInner() {
 
   function weeklyMergedTotal(productId: string): number {
     return deliveryWindows.reduce((t, w) => t + mergedQty(w.id, productId), 0)
+  }
+
+  function weeklyAdditionsTotal(productId: string): number {
+    return deliveryWindows.reduce((t, w) => t + (additions[w.id]?.[productId]?.quantity || 0), 0)
   }
 
   function hasAnyPar(): boolean {
@@ -694,11 +711,14 @@ function OrderPageInner() {
             <thead>
               <tr>
                 <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--gray-500)', fontWeight: 500, padding: '4px 0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Product</th>
-                {deliveryWindows.map(w => (
-                  <th key={w.id} style={{ textAlign: 'center', fontSize: 11, color: 'var(--gray-500)', fontWeight: 500, padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    {dayShort[w.day_of_week]}
-                  </th>
-                ))}
+                {deliveryWindows.map(w => {
+                  const isMonday = w.day_of_week === 'monday'
+                  return (
+                    <th key={w.id} style={{ textAlign: 'center', fontSize: 11, color: isMonday ? '#c2410c' : 'var(--gray-500)', fontWeight: isMonday ? 700 : 500, padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      {dayShort[w.day_of_week]}
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
@@ -737,27 +757,31 @@ function OrderPageInner() {
         Add extra loaves on top of your standing order. Changes here won't affect your standing order.
       </p>
 
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 600 }}>
+      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '70vh' }}>
+        <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%', minWidth: 600 }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--gray-200)' }}>
-              <th style={{ width: 28 }}></th>
-              <th style={{ textAlign: 'left', padding: '8px 12px 8px 0', minWidth: 200 }}>Product</th>
-              <th style={{ textAlign: 'right', padding: '8px 16px 8px 0', minWidth: 60, color: 'var(--gray-400)', fontWeight: 'normal', fontSize: 13 }}>Price</th>
-              {deliveryWindows.map(w => (
-                <th key={w.id} style={{ padding: '8px', textAlign: 'center', minWidth: 80 }}>
-                  <div style={{ fontWeight: 600 }}>{dayShort[w.day_of_week]}</div>
-                  <div style={{ fontSize: 11, color: 'var(--gray-400)', fontWeight: 'normal' }}>
-                    {getDeliveryDate(w.day_of_week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </div>
-                </th>
-              ))}
-              <th style={{ textAlign: 'right', padding: '8px 0 8px 8px', minWidth: 70, color: 'var(--gray-400)', fontWeight: 'normal', fontSize: 13 }}>Week total</th>
+              <th style={{ width: 28, position: 'sticky', top: 0, zIndex: 2, background: '#fff' }}></th>
+              <th style={{ textAlign: 'left', padding: '8px 12px 8px 0', minWidth: 200, position: 'sticky', top: 0, zIndex: 2, background: '#fff' }}>Product</th>
+              <th style={{ textAlign: 'right', padding: '8px 16px 8px 0', minWidth: 60, color: 'var(--gray-400)', fontWeight: 'normal', fontSize: 13, position: 'sticky', top: 0, zIndex: 2, background: '#fff' }}>Price</th>
+              {deliveryWindows.map(w => {
+                const isMonday = w.day_of_week === 'monday'
+                return (
+                  <th key={w.id} style={{ padding: '8px', textAlign: 'center', minWidth: 80, position: 'sticky', top: 0, zIndex: 1, background: isMonday ? '#fff7ed' : '#fff' }}>
+                    <div style={{ fontWeight: isMonday ? 700 : 600, color: isMonday ? '#c2410c' : 'inherit' }}>{dayShort[w.day_of_week]}</div>
+                    <div style={{ fontSize: 11, color: isMonday ? '#c2410c' : 'var(--gray-400)', fontWeight: 'normal' }}>
+                      {getDeliveryDate(w.day_of_week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </div>
+                  </th>
+                )
+              })}
+              <th style={{ textAlign: 'right', padding: '8px 0 8px 8px', minWidth: 70, color: 'var(--gray-400)', fontWeight: 'normal', fontSize: 13, position: 'sticky', top: 0, zIndex: 2, background: '#fff' }}>Week total</th>
             </tr>
           </thead>
           <tbody>
             {sortedProducts.map(p => {
               const wkTotal = weeklyMergedTotal(p.id)
+              const addTotal = weeklyAdditionsTotal(p.id)
               const min = p.minimum_quantity ?? 10
               const underMin = wkTotal > 0 && wkTotal < min
               const lineTotal = weeklyLineTotalCents(p)
@@ -778,7 +802,21 @@ function OrderPageInner() {
                     </button>
                   </td>
                   <td style={{ padding: '6px 12px 6px 0', fontSize: 14 }}>
-                    <div>{p.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                      <span>{p.name}</span>
+                      {addTotal > 0 && (
+                        <button
+                          onClick={() => clearProductRow(p.id)}
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            fontSize: 11, color: 'var(--gray-400)', padding: 0,
+                            textDecoration: 'underline', fontFamily: 'var(--font)',
+                          }}
+                        >
+                          clear
+                        </button>
+                      )}
+                    </div>
                     <div style={{ fontSize: 11, color: underMin ? '#dc2626' : 'var(--gray-400)', marginTop: 1 }}>
                       min {min}/week{wkTotal > 0 ? ` · ${wkTotal} ordered` : ''}
                     </div>
