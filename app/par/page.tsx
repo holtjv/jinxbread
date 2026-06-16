@@ -107,6 +107,19 @@ export default function ParPage() {
     }))
   }
 
+  function clearProductRow(productId: string) {
+    setPars(prev => {
+      const next = { ...prev }
+      deliveryWindows.forEach((w: any) => {
+        next[w.id] = {
+          ...next[w.id],
+          [productId]: { quantity: 0, sliced: next[w.id]?.[productId]?.sliced || false },
+        }
+      })
+      return next
+    })
+  }
+
   function colTotal(windowId: string) {
     return Object.values(pars[windowId] || {}).reduce((t, l) => t + (l.quantity || 0), 0)
   }
@@ -217,7 +230,21 @@ export default function ParPage() {
                   )}
                   <tr key={p.id} style={{ opacity: hasSaved ? 1 : 0.5 }}>
                     <td>
-                      <div>{p.name}</div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                        <span>{p.name}</span>
+                        {total > 0 && (
+                          <button
+                            onClick={() => clearProductRow(p.id)}
+                            style={{
+                              background: 'none', border: 'none', cursor: 'pointer',
+                              fontSize: 11, color: 'var(--gray-400)', padding: 0,
+                              textDecoration: 'underline', fontFamily: 'var(--font)',
+                            }}
+                          >
+                            clear
+                          </button>
+                        )}
+                      </div>
                       {getPrice(p) && (
                         <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 1 }}>{getPrice(p)} each</div>
                       )}
