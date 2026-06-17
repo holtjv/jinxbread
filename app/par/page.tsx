@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { createClient } from '../../lib/supabase'
 
 export default function ParPage() {
@@ -8,6 +8,7 @@ export default function ParPage() {
   const [pars, setPars] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
   const [savedPars, setSavedPars] = useState<Record<string, Record<string, { quantity: number; sliced: boolean }>>>({})
   const [customerPrices, setCustomerPrices] = useState<Record<string, number>>({})
+  const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [customerId, setCustomerId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [allCustomers, setAllCustomers] = useState<any[]>([])
@@ -19,6 +20,30 @@ export default function ParPage() {
   const [hasSavedOnce, setHasSavedOnce] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const supabase = createClient()
+
+  async function loadFavorites(targetId: string) {
+    const { data } = await supabase
+      .from('customer_favorites')
+      .select('product_id')
+      .eq('customer_id', targetId)
+    setFavorites(new Set((data || []).map((f: any) => f.product_id)))
+  }
+
+  async function toggleFavorite(productId: string) {
+    if (!selectedCustomerId) return
+    const isFav = favorites.has(productId)
+    if (isFav) {
+      await supabase.from('customer_favorites')
+        .delete()
+        .eq('customer_id', selectedCustomerId)
+        .eq('product_id', productId)
+      setFavorites(prev => { const next = new Set(prev); next.delete(productId); return next })
+    } else {
+      await supabase.from('customer_favorites')
+        .insert({ customer_id: selectedCustomerId, product_id: productId })
+      setFavorites(prev => new Set([...prev, productId]))
+    }
+  }
 
   async function loadPars(targetId: string, prods: any[], windows: any[]) {
     const [parsRes, pricesRes] = await Promise.all([
@@ -71,12 +96,12 @@ export default function ParPage() {
         const targetId = stored || cid
         setSelectedCustomerId(targetId)
         setSelectedCustomerName(storedName || 'My account')
-        await loadPars(targetId, prods, sortedWindows)
+        await Promise.all([loadPars(targetId, prods, sortedWindows), loadFavorites(targetId)])
       } else {
         sessionStorage.removeItem('adminSelectedCustomerId')
         sessionStorage.removeItem('adminSelectedCustomerName')
         setSelectedCustomerId(cid)
-        await loadPars(cid, prods, sortedWindows)
+        await Promise.all([loadPars(cid, prods, sortedWindows), loadFavorites(cid)])
       }
       setLoading(false)
     }
@@ -91,7 +116,7 @@ export default function ParPage() {
     sessionStorage.setItem('adminSelectedCustomerName', c?.name || '')
     setSaved(false)
     setError(null)
-    await loadPars(newId, products, deliveryWindows)
+    await Promise.all([loadPars(newId, products, deliveryWindows), loadFavorites(newId)])
   }
 
   function updatePar(windowId: string, productId: string, field: string, value: any) {
@@ -138,7 +163,12 @@ export default function ParPage() {
     return '$' + (cents / 100).toFixed(2)
   }
 
-  const sortedProducts = products.slice().sort((a, b) => (hasSavedQty(a.id) ? 0 : 1) - (hasSavedQty(b.id) ? 0 : 1))
+  const sortedProducts = products.slice().sort((a, b) => {
+    const aFav = favorites.has(a.id) ? 0 : 1
+    const bFav = favorites.has(b.id) ? 0 : 1
+    if (aFav !== bFav) return aFav - bFav
+    return (hasSavedQty(a.id) ? 0 : 1) - (hasSavedQty(b.id) ? 0 : 1)
+  })
 
   async function handleSave() {
     if (!selectedCustomerId) return
@@ -203,6 +233,7 @@ export default function ParPage() {
         <table className="data-table" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr>
+              <th style={{ width: 28, position: 'sticky', top: 0, zIndex: 2, background: '#fff' }}></th>
               <th style={{ minWidth: 200, position: 'sticky', top: 0, zIndex: 2, background: '#fff' }}>Product</th>
               {deliveryWindows.map(w => {
                 const isMonday = w.day_of_week === 'monday'
@@ -232,18 +263,34 @@ export default function ParPage() {
               const min = p.minimum_quantity ?? 10
               const underMin = total > 0 && total < min
               const hasSaved = hasSavedQty(p.id)
-              const prevHasSaved = idx > 0 ? hasSavedQty(sortedProducts[idx - 1].id) : true
-              const isFirstUnsaved = !hasSaved && prevHasSaved
+              const isFav = favorites.has(p.id)
+              const prevProduct = idx > 0 ? sortedProducts[idx - 1] : null
+              const prevHasSaved = prevProduct ? hasSavedQty(prevProduct.id) : true
+              const prevIsFav = prevProduct ? favorites.has(prevProduct.id) : false
+              const isFirstUnsaved = !isFav && !hasSaved && idx > 0 && (prevHasSaved || prevIsFav)
               return (
-                <>
+                <Fragment key={p.id}>
                   {isFirstUnsaved && (
                     <tr key={`divider-${p.id}`}>
-                      <td colSpan={1 + deliveryWindows.length} style={{ padding: '8px 0 4px 0', fontSize: 11, color: 'var(--gray-400)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', borderTop: '2px solid var(--gray-100)' }}>
+                      <td colSpan={2 + deliveryWindows.length} style={{ padding: '8px 0 4px 0', fontSize: 11, color: 'var(--gray-400)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', borderTop: '2px solid var(--gray-100)' }}>
                         Other products
                       </td>
                     </tr>
                   )}
                   <tr key={p.id} style={{ opacity: hasSaved ? 1 : 0.5 }}>
+                    <td style={{ padding: '6px 8px 6px 0', textAlign: 'center', verticalAlign: 'middle' }}>
+                      <button
+                        onClick={() => toggleFavorite(p.id)}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          fontSize: 16, padding: 0, lineHeight: 1,
+                          color: favorites.has(p.id) ? '#f59e0b' : 'var(--gray-300)',
+                        }}
+                        title={favorites.has(p.id) ? 'Remove from favorites' : 'Add to favorites'}
+                      >
+                        ★
+                      </button>
+                    </td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                         <span>{p.name}</span>
@@ -285,10 +332,11 @@ export default function ParPage() {
                       )
                     })}
                   </tr>
-                </>
+                </Fragment>
               )
             })}
             <tr className="totals-row">
+              <td></td>
               <td>Total per week</td>
               {deliveryWindows.map(w => (
                 <td key={w.id} className="center">{colTotal(w.id) > 0 ? colTotal(w.id) : '—'}</td>
