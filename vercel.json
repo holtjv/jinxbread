@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/notify-empty-orders",
       "schedule": "15 18 * * 0"
+    },
+    {
+      "path": "/api/cron/resend-invite-reminder",
+      "schedule": "0 14 * * *"
     }
   ]
 }
