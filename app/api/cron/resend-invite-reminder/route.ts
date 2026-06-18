@@ -58,7 +58,7 @@ export async function GET(request: Request) {
   for (const cu of customerUsers) {
     const email = cu.email as string
     const createdAt = cu.created_at as string
-    const customerName = (cu.customers as { name: string } | null)?.name ?? 'there'
+    const customerName = (cu.customers as unknown as { name: string } | null)?.name ?? 'there'
 
     // Skip confirmed users
     if (confirmedEmails.has(email)) continue
