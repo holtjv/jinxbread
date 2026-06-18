@@ -103,9 +103,10 @@ function buildSundayReminderHtml(
     Just a heads up — orders for the week of <strong>${weekRange}</strong> close today at noon.
     Standing orders submit automatically at 1pm.
   </p>
-  <p style="color: #555; margin: 0 0 24px 0;">
+  <p style="color: #555; margin: 0 0 16px 0;">
     Need to make changes or place a one-time order? You've got until noon.
   </p>
+  <p style="color: #555; margin: 0 0 24px 0;">Place and track your Jinx Bread orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
   <table style="margin: 0 0 24px 0;">
     <tr>
       <td style="padding-right: 12px;">

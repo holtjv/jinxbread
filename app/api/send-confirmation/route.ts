@@ -92,6 +92,7 @@ export async function POST(request: Request) {
   <img src="https://jinxbread.vercel.app/logo.png" alt="Jinx Bread" style="width: 80px; height: auto; margin-bottom: 24px;" />
   <p style="color: #555; margin: 0 0 12px 0;">Hi ${firstName},</p>
   <p style="color: #555; margin: 0 0 20px 0;">${actionText}</p>
+  <p style="color: #555; margin: 0 0 20px 0;">Place and track your Jinx Bread orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
   <div style="background: #f0f7ff; border-left: 3px solid #2563eb; padding: 12px 16px; margin-bottom: 28px; border-radius: 0 6px 6px 0;">
     <p style="margin: 0; font-size: 14px; font-weight: 700; color: #1a1a1a;">
       You may edit this order until ${cutoff_string} at noon.
