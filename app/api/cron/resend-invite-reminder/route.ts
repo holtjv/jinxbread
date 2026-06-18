@@ -74,7 +74,7 @@ export async function GET(request: Request) {
 
     // Resend the invite (generates a fresh magic link for unconfirmed users)
     const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
-      redirectTo: 'https://jinxbread-staging.vercel.app/welcome',
+      redirectTo: '${process.env.NEXT_PUBLIC_APP_URL}/welcome',
     })
 
     if (inviteError) {
@@ -95,7 +95,7 @@ export async function GET(request: Request) {
   <p style="font-size: 16px; margin: 0 0 16px 0;">Hi ${customerName},</p>
   <p style="font-size: 15px; margin: 0 0 16px 0;">${intro}</p>
   <p style="font-size: 15px; margin: 0 0 24px 0;">Place and track your Jinx Bread orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
-  <a href="https://jinxbread-staging.vercel.app/welcome"
+  <a href="${process.env.NEXT_PUBLIC_APP_URL}/welcome"
      style="display: inline-block; background: #1a1a1a; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px;">
     Sign in to Jinx Bread
   </a>
