@@ -106,7 +106,7 @@ export async function GET(request: Request) {
 
     const { error: emailError } = await resend.emails.send({
       from: 'Jinx Bread <orders@jinxbread.com>',
-      to: email,
+      to: 'jack@jinxbread.com',
       subject,
       html,
     })
