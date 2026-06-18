@@ -72,6 +72,10 @@ export default function AdminPage() {
   const [userError, setUserError] = useState<string | null>(null)
   const [userSuccess, setUserSuccess] = useState<string | null>(null)
 
+  const [userList, setUserList] = useState<{ email: string; customer_id: string; customer_name: string; created_at: string; status: string }[]>([])
+  const [userListLoading, setUserListLoading] = useState(false)
+  const [userRowState, setUserRowState] = useState<Record<string, { confirmRemove?: boolean; resending?: boolean; removing?: boolean; message?: string }>>({})
+
   const supabase = createClient()
 
   function getWeekBounds(offset: number = 0) {
@@ -364,6 +368,46 @@ export default function AdminPage() {
     setTimeout(() => setProductSuccess(null), 4000)
   }
 
+  async function loadUsers() {
+    setUserListLoading(true)
+    const res = await fetch('/api/admin/users')
+    const data = await res.json()
+    if (data.users) setUserList(data.users)
+    setUserListLoading(false)
+  }
+
+  useEffect(() => { if (tab === 'users') loadUsers() }, [tab])
+
+  async function handleResendInvite(email: string, customer_id: string) {
+    setUserRowState(prev => ({ ...prev, [email]: { ...prev[email], resending: true, message: undefined } }))
+    const res = await fetch('/api/admin/invite-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, customer_id, is_admin: false }),
+    })
+    const data = await res.json()
+    setUserRowState(prev => ({
+      ...prev,
+      [email]: { resending: false, message: res.ok ? 'Invite sent' : (data.error || 'Failed') },
+    }))
+    setTimeout(() => setUserRowState(prev => ({ ...prev, [email]: { ...prev[email], message: undefined } })), 5000)
+  }
+
+  async function handleRemoveUser(email: string) {
+    setUserRowState(prev => ({ ...prev, [email]: { ...prev[email], removing: true, confirmRemove: false } }))
+    const res = await fetch('/api/admin/users', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+    if (res.ok) {
+      setUserList(prev => prev.filter(u => u.email !== email))
+    } else {
+      const data = await res.json()
+      setUserRowState(prev => ({ ...prev, [email]: { removing: false, message: data.error || 'Failed to remove' } }))
+    }
+  }
+
   async function handleInviteUser() {
     if (!userForm.email.trim()) { setUserError('Email is required'); return }
     if (!userForm.customer_id) { setUserError('Please select a customer'); return }
@@ -379,6 +423,7 @@ export default function AdminPage() {
     setInviting(false)
     setUserSuccess(`Invite sent to ${userForm.email}`)
     setUserForm({ email: '', customer_id: '', is_admin: false })
+    loadUsers()
     setTimeout(() => setUserSuccess(null), 6000)
   }
 
@@ -687,28 +732,105 @@ export default function AdminPage() {
       )}
 
       {tab === 'users' && (
-        <div style={{ maxWidth: 480 }}>
-          <p className="page-subtitle">Invite a contact at a customer to log in. They'll receive a magic link by email.</p>
-          <div style={formRowStyle}>
-            <label className="form-label">Email address</label>
-            <input type="email" style={formFieldStyle} value={userForm.email} onChange={e => setUserForm(p => ({ ...p, email: e.target.value }))} placeholder="contact@restaurant.com" />
+        <div>
+          <div style={{ maxWidth: 480, marginBottom: 40 }}>
+            <p className="page-subtitle">Invite a contact at a customer to log in. They'll receive a magic link by email.</p>
+            <div style={formRowStyle}>
+              <label className="form-label">Email address</label>
+              <input type="email" style={formFieldStyle} value={userForm.email} onChange={e => setUserForm(p => ({ ...p, email: e.target.value }))} placeholder="contact@restaurant.com" />
+            </div>
+            <div style={formRowStyle}>
+              <label className="form-label">Customer</label>
+              <select style={formFieldStyle} value={userForm.customer_id} onChange={e => setUserForm(p => ({ ...p, customer_id: e.target.value }))}>
+                <option value="">Select a customer...</option>
+                {allCustomers.filter(c => c.active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div style={{ ...formRowStyle, marginBottom: 24 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 }}>
+                <input type="checkbox" checked={userForm.is_admin} onChange={e => setUserForm(p => ({ ...p, is_admin: e.target.checked }))} />
+                Admin access
+              </label>
+            </div>
+            {userError && <p style={{ color: 'red', marginBottom: 12 }}>{userError}</p>}
+            {userSuccess && <span className="alert alert-success" style={{ display: 'block', marginBottom: 16, padding: '8px 12px' }}>✓ {userSuccess}</span>}
+            <button onClick={handleInviteUser} disabled={inviting} className="btn btn-primary">{inviting ? 'Sending invite...' : 'Send invite'}</button>
           </div>
-          <div style={formRowStyle}>
-            <label className="form-label">Customer</label>
-            <select style={formFieldStyle} value={userForm.customer_id} onChange={e => setUserForm(p => ({ ...p, customer_id: e.target.value }))}>
-              <option value="">Select a customer...</option>
-              {allCustomers.filter(c => c.active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div style={{ ...formRowStyle, marginBottom: 24 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 }}>
-              <input type="checkbox" checked={userForm.is_admin} onChange={e => setUserForm(p => ({ ...p, is_admin: e.target.checked }))} />
-              Admin access
-            </label>
-          </div>
-          {userError && <p style={{ color: 'red', marginBottom: 12 }}>{userError}</p>}
-          {userSuccess && <span className="alert alert-success" style={{ display: 'block', marginBottom: 16, padding: '8px 12px' }}>✓ {userSuccess}</span>}
-          <button onClick={handleInviteUser} disabled={inviting} className="btn btn-primary">{inviting ? 'Sending invite...' : 'Send invite'}</button>
+
+          <h2 style={{ fontSize: 15, marginBottom: 12 }}>Existing users</h2>
+          {userListLoading ? (
+            <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>Loading...</p>
+          ) : userList.length === 0 ? (
+            <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>No users yet.</p>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>Email</th>
+                  <th>Invited</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {userList.map(u => {
+                  const row = userRowState[u.email] ?? {}
+                  return (
+                    <tr key={u.email}>
+                      <td style={{ fontWeight: 500 }}>{u.customer_name}</td>
+                      <td style={{ color: 'var(--gray-500)', fontSize: 13 }}>{u.email}</td>
+                      <td style={{ color: 'var(--gray-500)', fontSize: 13 }}>
+                        {new Date(u.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+                      <td>
+                        <span style={{
+                          display: 'inline-block', fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                          background: u.status === 'Active' ? '#d4edda' : '#fff3cd',
+                          color: u.status === 'Active' ? '#155724' : '#856404',
+                        }}>
+                          {u.status}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {row.message ? (
+                          <span style={{ fontSize: 12, color: row.message === 'Invite sent' ? '#155724' : 'red' }}>{row.message}</span>
+                        ) : row.confirmRemove ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, color: 'var(--gray-600)' }}>Remove this user?</span>
+                            <button onClick={() => handleRemoveUser(u.email)} disabled={row.removing} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)', fontWeight: 600 }}>
+                              {row.removing ? 'Removing...' : 'Yes'}
+                            </button>
+                            <button onClick={() => setUserRowState(prev => ({ ...prev, [u.email]: {} }))} style={{ background: 'none', border: 'none', color: 'var(--gray-500)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)' }}>
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <span style={{ display: 'inline-flex', gap: 12 }}>
+                            {u.status === 'Pending' && (
+                              <button
+                                onClick={() => handleResendInvite(u.email, u.customer_id)}
+                                disabled={row.resending}
+                                style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)' }}
+                              >
+                                {row.resending ? 'Sending...' : 'Resend invite'}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setUserRowState(prev => ({ ...prev, [u.email]: { confirmRemove: true } }))}
+                              style={{ background: 'none', border: 'none', color: 'var(--gray-400)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)' }}
+                            >
+                              Remove
+                            </button>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
