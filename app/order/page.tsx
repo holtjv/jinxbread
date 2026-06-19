@@ -201,18 +201,27 @@ function OrderPageInner() {
     const weekEnd = getWeekEnd()
     return existingOrders.some(o =>
       o.delivery_date >= weekStart &&
-      o.delivery_date <= weekEnd
+      o.delivery_date <= weekEnd &&
+      o.status !== 'cancelled'
     )
   }
 
   function existingWeekOrderStatus(): string | null {
     const weekStart = getWeekStart()
     const weekEnd = getWeekEnd()
-    const order = existingOrders.find(o =>
+    // Prefer any active order over a cancelled one
+    const active = existingOrders.find(o =>
       o.delivery_date >= weekStart &&
-      o.delivery_date <= weekEnd
+      o.delivery_date <= weekEnd &&
+      o.status !== 'cancelled'
     )
-    return order?.status ?? null
+    if (active) return active.status
+    const cancelled = existingOrders.find(o =>
+      o.delivery_date >= weekStart &&
+      o.delivery_date <= weekEnd &&
+      o.status === 'cancelled'
+    )
+    return cancelled?.status ?? null
   }
 
   async function loadFavorites(targetId: string) {
