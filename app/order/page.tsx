@@ -191,7 +191,8 @@ function OrderPageInner() {
     return existingOrders.find(o =>
       o.delivery_window_id === windowId &&
       o.delivery_date >= weekStart &&
-      o.delivery_date <= weekEnd
+      o.delivery_date <= weekEnd &&
+      o.status !== 'cancelled'
     ) || null
   }
 
@@ -558,6 +559,7 @@ function OrderPageInner() {
         .eq('delivery_window_id', w.id)
         .gte('delivery_date', weekStart)
         .lte('delivery_date', weekEnd)
+        .neq('status', 'cancelled')
         .maybeSingle()
         .then(r => r.data)
 
@@ -565,11 +567,13 @@ function OrderPageInner() {
 
       if (existingOrder?.id) {
         orderId = existingOrder.id
-        await supabase.from('order_items').delete().eq('order_id', orderId)
-        await supabase.from('orders').update({
+        const { error: delError } = await supabase.from('order_items').delete().eq('order_id', orderId)
+        if (delError) { setError(`Failed to clear existing items: ${delError.message}`); setSubmitting(false); return }
+        const { error: updateError } = await supabase.from('orders').update({
           status: 'pending', is_par: false, delivery_date: dateStr,
           customer_notes: notes || null, submitted_at: new Date().toISOString(),
         }).eq('id', orderId)
+        if (updateError) { setError(`Failed to update order: ${updateError.message}`); setSubmitting(false); return }
       } else {
         const { data: order, error: orderError } = await supabase
           .from('orders')
