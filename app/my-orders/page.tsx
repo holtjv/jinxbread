@@ -194,35 +194,58 @@ export default function MyOrdersPage() {
         })).filter(i => i.name)
         const parTotal = parItems.reduce((t, i) => t + i.quantity, 0)
 
-        const manualOrder = upcomingManualOrders.find(o => {
+        const manualOrders = upcomingManualOrders.filter(o => {
           const od = new Date(o.delivery_date + 'T12:00:00')
           return o.delivery_window_id === w.id && od >= weekTue && od <= weekMon
         })
-        const addedItems = manualOrder?.order_items
+
+        // Active (non-cancelled) order merges with PAR items into the primary row
+        const activeOrder = manualOrders.find(o => o.status !== 'cancelled') || null
+        const addedItems = activeOrder?.order_items
           ?.map((item: any) => ({ name: item.product?.name || '', quantity: item.quantity }))
           ?.filter((i: any) => i.name) || []
         const addedTotal = addedItems.reduce((t: number, i: any) => t + i.quantity, 0)
-
         const combinedTotal = parTotal + addedTotal
-        const isCancelled = manualOrder?.status === 'cancelled'
-        if (combinedTotal === 0 && !isCancelled) return
 
-        rows.push({
-          key: `${weekIdx}-${w.id}`,
-          dateStr,
-          dateLabel: fmtDate(dateStr),
-          parItems,
-          parTotal,
-          addedItems,
-          addedTotal,
-          combinedTotal,
-          manualOrderId: manualOrder?.id || null,
-          status: manualOrder?.status || null,
-          isCancelled,
-          cancelledAt: isCancelled ? manualOrder.updated_at : null,
-          editable: isEditable(dateStr) && !isCancelled,
-          editUrl: getEditUrl(dateStr),
-          customerNotes: manualOrder?.customer_notes || null,
+        if (combinedTotal > 0 || activeOrder) {
+          rows.push({
+            key: activeOrder ? `order-${activeOrder.id}` : `${weekIdx}-${w.id}`,
+            dateStr,
+            dateLabel: fmtDate(dateStr),
+            parItems,
+            parTotal,
+            addedItems,
+            addedTotal,
+            combinedTotal,
+            manualOrderId: activeOrder?.id || null,
+            status: activeOrder?.status || null,
+            isCancelled: false,
+            cancelledAt: null,
+            editable: isEditable(dateStr),
+            editUrl: getEditUrl(dateStr),
+            customerNotes: activeOrder?.customer_notes || null,
+          })
+        }
+
+        // Cancelled orders each get their own separate row
+        manualOrders.filter(o => o.status === 'cancelled').forEach(cancelled => {
+          rows.push({
+            key: `order-${cancelled.id}`,
+            dateStr,
+            dateLabel: fmtDate(dateStr),
+            parItems: [],
+            parTotal: 0,
+            addedItems: [],
+            addedTotal: 0,
+            combinedTotal: 0,
+            manualOrderId: cancelled.id,
+            status: 'cancelled',
+            isCancelled: true,
+            cancelledAt: cancelled.updated_at,
+            editable: false,
+            editUrl: getEditUrl(dateStr),
+            customerNotes: null,
+          })
         })
       })
     }
