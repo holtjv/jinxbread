@@ -492,6 +492,7 @@ function OrderPageInner() {
   })
 
   async function handleCancelOrder() {
+    console.log('handleCancelOrder called, selectedCustomerId:', selectedCustomerId)
     if (!selectedCustomerId) return
     setSubmitting(true)
     setError(null)
@@ -502,9 +503,36 @@ function OrderPageInner() {
       o.delivery_date >= weekStart && o.delivery_date <= weekEnd
     )
 
+    if (ordersToCancel.length === 0) {
+      console.error('handleCancelOrder: no orders found to cancel', { weekStart, weekEnd, existingOrders })
+      setError('No order found to cancel for this week.')
+      setSubmitting(false)
+      return
+    }
+
     for (const order of ordersToCancel) {
-      await supabase.from('order_items').delete().eq('order_id', order.id)
-      await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id)
+      console.log('Cancelling order', order.id)
+      const { error: itemsError } = await supabase.from('order_items').delete().eq('order_id', order.id)
+      if (itemsError) {
+        console.error('Failed to delete order_items for order', order.id, itemsError)
+        setError(`Failed to clear order items: ${itemsError.message}`)
+        setSubmitting(false)
+        return
+      }
+      const { error: orderError, count } = await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id).select('id', { count: 'exact', head: true })
+      console.log('Order update result — error:', orderError, 'rows affected:', count)
+      if (orderError) {
+        console.error('Failed to update order status for order', order.id, orderError)
+        setError(`Failed to cancel order: ${orderError.message}`)
+        setSubmitting(false)
+        return
+      }
+      if (count === 0) {
+        console.error('Order update matched 0 rows — possible RLS block or wrong ID', order.id)
+        setError('Order update matched 0 rows — cancellation did not apply.')
+        setSubmitting(false)
+        return
+      }
     }
 
     setSubmitting(false)
