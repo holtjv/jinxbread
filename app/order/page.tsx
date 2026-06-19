@@ -98,7 +98,7 @@ function OrderPageInner() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [step, setStep] = useState<'order' | 'confirm'>('order')
+  const [step, setStep] = useState<'order' | 'confirm' | 'cancel'>('order')
   const [weekOffset, setWeekOffset] = useState(0)
   const supabase = createClient()
 
@@ -202,6 +202,16 @@ function OrderPageInner() {
       o.delivery_date >= weekStart &&
       o.delivery_date <= weekEnd
     )
+  }
+
+  function existingWeekOrderStatus(): string | null {
+    const weekStart = getWeekStart()
+    const weekEnd = getWeekEnd()
+    const order = existingOrders.find(o =>
+      o.delivery_date >= weekStart &&
+      o.delivery_date <= weekEnd
+    )
+    return order?.status ?? null
   }
 
   async function loadFavorites(targetId: string) {
@@ -481,6 +491,26 @@ function OrderPageInner() {
     return (a.sort_order ?? 0) - (b.sort_order ?? 0)
   })
 
+  async function handleCancelOrder() {
+    if (!selectedCustomerId) return
+    setSubmitting(true)
+    setError(null)
+
+    const weekStart = getWeekStart()
+    const weekEnd = getWeekEnd()
+    const ordersToCancel = existingOrders.filter(o =>
+      o.delivery_date >= weekStart && o.delivery_date <= weekEnd
+    )
+
+    for (const order of ordersToCancel) {
+      await supabase.from('order_items').delete().eq('order_id', order.id)
+      await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id)
+    }
+
+    setSubmitting(false)
+    window.location.href = `/order/confirmation?week=${encodeURIComponent(getWeekRange())}&cancelled=1`
+  }
+
   async function handleSubmit() {
     if (!selectedCustomerId) { setError('No customer selected.'); return }
     if (totalMergedItems() === 0) { setError('No items in your order.'); return }
@@ -582,12 +612,32 @@ function OrderPageInner() {
   const weekRange = getWeekRange()
   const cutoffString = getCutoffString()
   const isEditing = hasExistingOrderThisWeek()
+  const weekOrderStatus = existingWeekOrderStatus()
+  const isCancelledWeek = weekOrderStatus === 'cancelled'
   const pastCutoff = isCurrentWeekPastCutoff() && !isAdmin
   const weekTotal = orderWeekTotalCents()
 
   const dayShort: Record<string, string> = {
     monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed',
     thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun'
+  }
+
+  if (step === 'cancel') {
+    return (
+      <div>
+        <h1 style={{ marginBottom: 4 }}>Cancel your order?</h1>
+        <p className="page-subtitle">
+          This will cancel your order for {weekRange}. You can place a new order before {cutoffString} at noon.
+        </p>
+        {error && <p style={{ color: 'red', marginBottom: 16 }}>{error}</p>}
+        <div style={{ display: 'flex', gap: 12, marginBottom: 60 }}>
+          <button onClick={() => setStep('order')} className="btn" style={{ background: 'var(--gray-100)', color: 'var(--gray-900)' }}>← Go back</button>
+          <button onClick={handleCancelOrder} disabled={submitting} className="btn btn-primary" style={{ background: '#dc2626' }}>
+            {submitting ? 'Cancelling...' : 'Yes, cancel my order'}
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (step === 'confirm') {
@@ -759,8 +809,14 @@ function OrderPageInner() {
         )}
       </div>
 
+      {isCancelledWeek && (
+        <div style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 8, padding: '10px 16px', marginBottom: 20, fontSize: 13, color: '#856404', fontWeight: 500 }}>
+          You cancelled your order for this week. Add items below to reinstate it.
+        </div>
+      )}
+
       <h2 style={{ fontSize: 15, marginBottom: 8 }}>
-        {isEditing ? 'Edit additional items' : 'Additional items this week'}
+        {isEditing && !isCancelledWeek ? 'Edit additional items' : 'Additional items this week'}
       </h2>
       <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 16 }}>
         Add extra loaves on top of your standing order. Changes here won't affect your standing order.
@@ -909,7 +965,12 @@ function OrderPageInner() {
         ) : (
           <button
             onClick={() => {
-              if (totalMergedItems() === 0) { setError('Please add at least one item before continuing.'); return }
+              if (totalMergedItems() === 0) {
+                if (!isEditing || isCancelledWeek) { setError('Please add at least one item before continuing.'); return }
+                setError(null)
+                setStep('cancel')
+                return
+              }
               const violations: string[] = []
               products.forEach(p => {
                 const total = weeklyMergedTotal(p.id)
@@ -921,8 +982,9 @@ function OrderPageInner() {
               setStep('confirm')
             }}
             className="btn btn-primary"
+            style={totalMergedItems() === 0 && isEditing && !isCancelledWeek ? { background: '#dc2626' } : {}}
           >
-            Review order ({totalMergedItems()} loaves) →
+            {totalMergedItems() === 0 && isEditing && !isCancelledWeek ? 'Cancel order' : `Review order (${totalMergedItems()} loaves) →`}
           </button>
         )}
       </div>

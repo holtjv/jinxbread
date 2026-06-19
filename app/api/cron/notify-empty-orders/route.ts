@@ -57,6 +57,7 @@ export async function GET(request: Request) {
     .in('customer_id', customers.map(c => c.id))
     .gte('delivery_date', weekStart)
     .lte('delivery_date', weekEnd)
+    .neq('status', 'cancelled')
 
   if (ordersError) {
     return NextResponse.json({ error: ordersError.message }, { status: 500 })
