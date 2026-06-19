@@ -18,7 +18,7 @@ export default function MyOrdersPage() {
   async function loadOrders(targetId: string) {
     const [ordersRes, parsRes, prodsRes, windowsRes] = await Promise.all([
       supabase.from('orders').select(`
-        id, delivery_date, delivery_window_id, status, is_par, customer_notes, submitted_at,
+        id, delivery_date, delivery_window_id, status, is_par, customer_notes, submitted_at, updated_at,
         delivery_window:delivery_windows (label, day_of_week),
         order_items (quantity, sliced, product_id, product:products (name, sku))
       `).eq('customer_id', targetId).order('delivery_date', { ascending: false }),
@@ -160,6 +160,10 @@ export default function MyOrdersPage() {
     })
   }
 
+  function fmtCancelledAt(updatedAt: string) {
+    return new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  }
+
   function buildUpcomingRows() {
     const tue = getCurrentTuesday()
     const upcomingManualOrders = orders.filter(o => isUpcoming(o.delivery_date) && !o.is_par)
@@ -200,7 +204,8 @@ export default function MyOrdersPage() {
         const addedTotal = addedItems.reduce((t: number, i: any) => t + i.quantity, 0)
 
         const combinedTotal = parTotal + addedTotal
-        if (combinedTotal === 0) return
+        const isCancelled = manualOrder?.status === 'cancelled'
+        if (combinedTotal === 0 && !isCancelled) return
 
         rows.push({
           key: `${weekIdx}-${w.id}`,
@@ -213,7 +218,9 @@ export default function MyOrdersPage() {
           combinedTotal,
           manualOrderId: manualOrder?.id || null,
           status: manualOrder?.status || null,
-          editable: isEditable(dateStr),
+          isCancelled,
+          cancelledAt: isCancelled ? manualOrder.updated_at : null,
+          editable: isEditable(dateStr) && !isCancelled,
           editUrl: getEditUrl(dateStr),
           customerNotes: manualOrder?.customer_notes || null,
         })
@@ -279,34 +286,41 @@ export default function MyOrdersPage() {
               {upcomingRows.map(row => {
                 const expanded = expandedRows.has(row.key)
                 return (
-                  <div key={row.key} style={{ border: '1px solid var(--gray-200)', borderRadius: 8, marginBottom: 6, overflow: 'hidden' }}>
+                  <div key={row.key} style={{ border: `1px solid ${row.isCancelled ? 'var(--gray-200)' : 'var(--gray-200)'}`, borderRadius: 8, marginBottom: 6, overflow: 'hidden', opacity: row.isCancelled ? 0.6 : 1 }}>
                     <div
                       onClick={() => toggleRow(row.key)}
-                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer', background: 'var(--gray-50)' }}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer', background: row.isCancelled ? 'var(--gray-100)' : 'var(--gray-50)' }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <span style={{ fontSize: 13, color: 'var(--gray-400)', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', minWidth: 10 }}>›</span>
                         <div>
-                          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--gray-900)', marginBottom: 2 }}>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: row.isCancelled ? 'var(--gray-500)' : 'var(--gray-900)', marginBottom: 2 }}>
                             {row.dateLabel}
                           </div>
-                          <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
-                            {row.parTotal > 0 && row.addedTotal > 0
-                              ? `${row.parTotal} standing · ${row.addedTotal} added`
-                              : row.parTotal > 0 ? 'Standing order'
-                              : 'One-time order'}
+                          <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>
+                            {row.isCancelled
+                              ? (row.cancelledAt ? `Cancelled ${fmtCancelledAt(row.cancelledAt)}` : 'Cancelled')
+                              : row.parTotal > 0 && row.addedTotal > 0
+                                ? `${row.parTotal} standing · ${row.addedTotal} added`
+                                : row.parTotal > 0 ? 'Standing order'
+                                : 'One-time order'}
                           </div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                        <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{row.combinedTotal} loaves</span>
-                        {row.editable
-                          ? <a href={row.editUrl} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit</a>
-                          : <span style={{ fontSize: 13, color: 'var(--gray-400)' }}>Submitted</span>
+                        {row.isCancelled
+                          ? <span style={{ fontSize: 11, fontWeight: 600, color: '#b91c1c', background: '#fee2e2', borderRadius: 4, padding: '2px 8px', letterSpacing: '0.03em' }}>Cancelled</span>
+                          : <>
+                              <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{row.combinedTotal} loaves</span>
+                              {row.editable
+                                ? <a href={row.editUrl} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit</a>
+                                : <span style={{ fontSize: 13, color: 'var(--gray-400)' }}>Submitted</span>
+                              }
+                            </>
                         }
                       </div>
                     </div>
-                    {expanded && (
+                    {expanded && !row.isCancelled && (
                       <div style={{ padding: '8px 16px 12px 36px', borderTop: '1px solid var(--gray-100)' }}>
                         {row.parItems.length > 0 && (
                           <>
@@ -352,33 +366,41 @@ export default function MyOrdersPage() {
               {pastOrders.map(order => {
                 const expanded = expandedRows.has(order.id)
                 const loaves = totalLoaves(order)
-                const editable = isEditable(order.delivery_date)
+                const isCancelled = order.status === 'cancelled'
+                const editable = isEditable(order.delivery_date) && !isCancelled
                 return (
-                  <div key={order.id} style={{ border: '1px solid var(--gray-200)', borderRadius: 8, marginBottom: 6, overflow: 'hidden' }}>
+                  <div key={order.id} style={{ border: '1px solid var(--gray-200)', borderRadius: 8, marginBottom: 6, overflow: 'hidden', opacity: isCancelled ? 0.6 : 1 }}>
                     <div
                       onClick={() => toggleRow(order.id)}
-                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer', background: 'var(--gray-50)' }}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer', background: isCancelled ? 'var(--gray-100)' : 'var(--gray-50)' }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <span style={{ fontSize: 13, color: 'var(--gray-400)', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', minWidth: 10 }}>›</span>
                         <div>
-                          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--gray-900)', marginBottom: 2 }}>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: isCancelled ? 'var(--gray-500)' : 'var(--gray-900)', marginBottom: 2 }}>
                             {fmtDate(order.delivery_date)}
                           </div>
-                          <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
-                            {order.is_par ? 'Standing order' : 'One-time order'}
+                          <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>
+                            {isCancelled
+                              ? (order.updated_at ? `Cancelled ${fmtCancelledAt(order.updated_at)}` : 'Cancelled')
+                              : order.is_par ? 'Standing order' : 'One-time order'}
                           </div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                        <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{loaves} loaves</span>
-                        {editable
-                          ? <a href={getEditUrl(order.delivery_date)} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit</a>
-                          : <span style={{ fontSize: 13, color: 'var(--gray-400)' }}>{statusLabel(order.status, order.is_par)}</span>
+                        {isCancelled
+                          ? <span style={{ fontSize: 11, fontWeight: 600, color: '#b91c1c', background: '#fee2e2', borderRadius: 4, padding: '2px 8px', letterSpacing: '0.03em' }}>Cancelled</span>
+                          : <>
+                              <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{loaves} loaves</span>
+                              {editable
+                                ? <a href={getEditUrl(order.delivery_date)} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit</a>
+                                : <span style={{ fontSize: 13, color: 'var(--gray-400)' }}>{statusLabel(order.status, order.is_par)}</span>
+                              }
+                            </>
                         }
                       </div>
                     </div>
-                    {expanded && (
+                    {expanded && !isCancelled && (
                       <div style={{ padding: '8px 16px 12px 36px', borderTop: '1px solid var(--gray-100)' }}>
                         {order.order_items?.map((item: any, i: number) => (
                           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--gray-600)', padding: '2px 0' }}>
