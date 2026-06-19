@@ -12,7 +12,7 @@ const supabase = createClient(
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-const BAKERY_EMAIL = 'jack@jinxbread.com'
+const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
 
 function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string } {
   const day = fromDate.getUTCDay()
@@ -93,14 +93,27 @@ export async function GET(request: Request) {
 </html>
   `
 
-  await resend.emails.send({
-    from: 'Jinx Bread <orders@jinxbread.com>',
-    to: BAKERY_EMAIL,
-    subject,
-    html,
-  })
-
-  console.log(`notify-empty-orders: emailed about ${count} customers with no orders (${weekStart}–${weekEnd})`)
+  try {
+    await resend.emails.send({
+      from: 'Jinx Bread <orders@jinxbread.com>',
+      to: BAKERY_ADMIN_EMAIL,
+      subject,
+      html,
+    })
+    console.log(`notify-empty-orders: emailed about ${count} customers with no orders (${weekStart}–${weekEnd})`)
+  } catch (err: any) {
+    console.error('notify-empty-orders: email failed:', err)
+    try {
+      await resend.emails.send({
+        from: 'Jinx Bread <orders@jinxbread.com>',
+        to: BAKERY_ADMIN_EMAIL,
+        subject: 'Email Send Failure: notify-empty-orders',
+        html: `<p>Failed to send <strong>empty orders notification</strong> to <strong>${BAKERY_ADMIN_EMAIL}</strong>.</p><p>Error: ${err.message}</p>`,
+      })
+    } catch (alertErr) {
+      console.error('notify-empty-orders: failed to send alert email:', alertErr)
+    }
+  }
 
   return NextResponse.json({ message: 'Notification sent', emptyCount: count, customers: emptyCustomers.map(c => c.name) })
 }

@@ -12,6 +12,8 @@ const supabase = createClient(
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
+const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
+
 const DAY_OF_WEEK_TO_OFFSET: Record<string, number> = {
   monday:    8,
   tuesday:   2,
@@ -271,7 +273,18 @@ export async function GET(request: Request) {
         await sendParConfirmation(customer, weekStart, weekEnd, weekRange, cutoffString)
         emailedCustomers.add(customer.id)
       } catch (err: any) {
+        console.error(`submit-par-orders: confirmation email failed for customer ${customer.id}:`, err)
         errors.push(`Email error for customer ${customer.id}: ${err.message}`)
+        try {
+          await resend.emails.send({
+            from: 'Jinx Bread <orders@jinxbread.com>',
+            to: BAKERY_ADMIN_EMAIL,
+            subject: 'Email Send Failure: submit-par-orders',
+            html: `<p>Failed to send <strong>par order confirmation</strong> to customer <strong>${customer.name}</strong> (${customer.email}).</p><p>Error: ${err.message}</p>`,
+          })
+        } catch (alertErr) {
+          console.error('submit-par-orders: failed to send alert email:', alertErr)
+        }
       }
     }
   }

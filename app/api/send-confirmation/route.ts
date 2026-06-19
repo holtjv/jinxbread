@@ -9,7 +9,20 @@ const supabase = createClient(
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-const BAKERY_EMAIL = 'jack@jinxbread.com'
+const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
+
+async function sendAlertEmail(intendedTo: string, emailType: string, errorMsg: string) {
+  try {
+    await resend.emails.send({
+      from: 'Jinx Bread <orders@jinxbread.com>',
+      to: BAKERY_ADMIN_EMAIL,
+      subject: 'Email Send Failure: send-confirmation',
+      html: `<p>Failed to send <strong>${emailType}</strong> to <strong>${intendedTo}</strong>.</p><p>Error: ${errorMsg}</p>`,
+    })
+  } catch (alertErr) {
+    console.error('send-confirmation: failed to send alert email:', alertErr)
+  }
+}
 
 export async function POST(request: Request) {
   const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing } = await request.json()
@@ -130,24 +143,31 @@ export async function POST(request: Request) {
 </html>
 `
 
-  const { error: customerError } = await resend.emails.send({
-    from: 'Jinx Bread <orders@jinxbread.com>',
-    to: customer.email,
-    subject,
-    html: customerHtml,
-  })
-
-  if (customerError) {
-    console.error('Customer email error:', customerError)
-    return NextResponse.json({ error: customerError.message }, { status: 500 })
+  let emailFailed = false
+  try {
+    await resend.emails.send({
+      from: 'Jinx Bread <orders@jinxbread.com>',
+      to: customer.email,
+      subject,
+      html: customerHtml,
+    })
+  } catch (err: any) {
+    console.error('send-confirmation: customer email failed:', err)
+    await sendAlertEmail(customer.email, 'order confirmation', err.message)
+    emailFailed = true
   }
 
-  resend.emails.send({
-    from: 'Jinx Bread <orders@jinxbread.com>',
-    to: BAKERY_EMAIL,
-    subject: bakerySubject,
-    html: bakeryHtml,
-  }).catch(err => console.error('Bakery notification error:', err))
+  try {
+    await resend.emails.send({
+      from: 'Jinx Bread <orders@jinxbread.com>',
+      to: BAKERY_ADMIN_EMAIL,
+      subject: bakerySubject,
+      html: bakeryHtml,
+    })
+  } catch (err: any) {
+    console.error('send-confirmation: bakery notification failed:', err)
+    await sendAlertEmail(BAKERY_ADMIN_EMAIL, 'bakery order notification', err.message)
+  }
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, emailFailed })
 }

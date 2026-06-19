@@ -554,18 +554,27 @@ function OrderPageInner() {
     const cutoffSunday = getSelectedSunday(weekOffset)
     const cutoffStr = cutoffSunday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
-    fetch('/api/send-confirmation', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customer_id: selectedCustomerId,
-        week_start: getWeekStart(), week_end: getWeekEnd(),
-        week_range: getWeekRange(), cutoff_string: cutoffStr,
-        is_editing: isEditing,
-      }),
-    }).catch(err => console.error('Confirmation email error:', err))
+    let emailFailed = false
+    try {
+      const emailRes = await fetch('/api/send-confirmation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: selectedCustomerId,
+          week_start: getWeekStart(), week_end: getWeekEnd(),
+          week_range: getWeekRange(), cutoff_string: cutoffStr,
+          is_editing: isEditing,
+        }),
+      })
+      const emailData = await emailRes.json()
+      if (emailData.emailFailed) emailFailed = true
+    } catch (err) {
+      console.error('Confirmation email error:', err)
+      emailFailed = true
+    }
 
-    window.location.href = `/order/confirmation?week=${encodeURIComponent(getWeekRange())}`
+    const confirmUrl = `/order/confirmation?week=${encodeURIComponent(getWeekRange())}${emailFailed ? '&emailFailed=1' : ''}`
+    window.location.href = confirmUrl
   }
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>

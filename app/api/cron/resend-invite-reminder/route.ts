@@ -12,6 +12,8 @@ const supabase = createClient(
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
+const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
+
 function isWithin24hWindow(createdAt: string, daysAgo: number): boolean {
   const created = new Date(createdAt).getTime()
   const now = Date.now()
@@ -104,18 +106,28 @@ export async function GET(request: Request) {
 </html>
     `
 
-    const { error: emailError } = await resend.emails.send({
-      from: 'Jinx Bread <orders@jinxbread.com>',
-      to: email,
-      subject,
-      html,
-    })
-
-    if (emailError) {
-      errors.push({ email, error: emailError.message })
-    } else {
+    try {
+      await resend.emails.send({
+        from: 'Jinx Bread <orders@jinxbread.com>',
+        to: email,
+        subject,
+        html,
+      })
       results.push({ email, reminder: reminderNumber })
       console.log(`resend-invite-reminder: sent reminder ${reminderNumber} to ${email}`)
+    } catch (err: any) {
+      console.error(`resend-invite-reminder: failed to send to ${email}:`, err)
+      errors.push({ email, error: err.message })
+      try {
+        await resend.emails.send({
+          from: 'Jinx Bread <orders@jinxbread.com>',
+          to: BAKERY_ADMIN_EMAIL,
+          subject: 'Email Send Failure: resend-invite-reminder',
+          html: `<p>Failed to send <strong>invite reminder ${reminderNumber}</strong> to <strong>${email}</strong>.</p><p>Error: ${err.message}</p>`,
+        })
+      } catch (alertErr) {
+        console.error('resend-invite-reminder: failed to send alert email:', alertErr)
+      }
     }
   }
 

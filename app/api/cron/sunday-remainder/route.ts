@@ -12,6 +12,8 @@ const supabase = createClient(
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
+const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
+
 function getUpcomingTuesday(): Date {
   const today = new Date()
   const day = today.getDay()
@@ -63,20 +65,26 @@ export async function GET(request: Request) {
     const firstName = customer.contact_name?.split(' ')[0] || customer.name
 
     try {
-      const { error: sendError } = await resend.emails.send({
+      await resend.emails.send({
         from: 'Jinx Bread <orders@jinxbread.com>',
         to: customer.email,
         subject: `Orders close at noon today — ${weekRange}`,
         html: buildSundayReminderHtml(firstName, weekRange, orderUrl, parUrl),
       })
-
-      if (sendError) {
-        errors.push(`Failed to send to ${customer.email}: ${sendError.message}`)
-      } else {
-        notified.push(customer.email)
-      }
+      notified.push(customer.email)
     } catch (err: any) {
-      errors.push(`Exception for ${customer.email}: ${err.message}`)
+      console.error(`sunday-reminder: failed to send to ${customer.email}:`, err)
+      errors.push(`Failed to send to ${customer.email}: ${err.message}`)
+      try {
+        await resend.emails.send({
+          from: 'Jinx Bread <orders@jinxbread.com>',
+          to: BAKERY_ADMIN_EMAIL,
+          subject: 'Email Send Failure: sunday-reminder',
+          html: `<p>Failed to send <strong>Sunday reminder</strong> to <strong>${customer.email}</strong>.</p><p>Error: ${err.message}</p>`,
+        })
+      } catch (alertErr) {
+        console.error('sunday-reminder: failed to send alert email:', alertErr)
+      }
     }
   }
 
