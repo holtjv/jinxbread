@@ -519,15 +519,15 @@ function OrderPageInner() {
         setSubmitting(false)
         return
       }
-      const { error: orderError, count } = await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id).select('id', { count: 'exact', head: true })
-      console.log('Order update result — error:', orderError, 'rows affected:', count)
+      const { error: orderError, data: updatedRows } = await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id).select('id')
+      console.log('Order update result — error:', orderError, 'rows updated:', updatedRows)
       if (orderError) {
         console.error('Failed to update order status for order', order.id, orderError)
         setError(`Failed to cancel order: ${orderError.message}`)
         setSubmitting(false)
         return
       }
-      if (count === 0) {
+      if (!updatedRows || updatedRows.length === 0) {
         console.error('Order update matched 0 rows — possible RLS block or wrong ID', order.id)
         setError('Order update matched 0 rows — cancellation did not apply.')
         setSubmitting(false)
