@@ -30,8 +30,9 @@ export default function WelcomePage() {
           .single()
         if (cu) setCustomerName((cu.customers as any)?.name || null)
       } else {
-        console.log('Welcome page - no session, redirecting to login')
-        router.replace('/login')
+        // No session yet - could be establishing from invite token
+        // onAuthStateChange will handle it when session is ready
+        console.log('Welcome page - waiting for auth state...')
       }
     }
     checkSession()
