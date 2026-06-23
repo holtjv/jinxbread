@@ -196,6 +196,24 @@ function OrderPageInner() {
     ) || null
   }
 
+  // For submit only: includes cancelled rows so they can be reused (avoids unique key conflict)
+  function findReusableOrderForWindow(windowId: string): any | null {
+    const weekStart = getWeekStart()
+    const weekEnd = getWeekEnd()
+    // Prefer active order; fall back to cancelled so we can reactivate it
+    return existingOrders.find(o =>
+      o.delivery_window_id === windowId &&
+      o.delivery_date >= weekStart &&
+      o.delivery_date <= weekEnd &&
+      o.status !== 'cancelled'
+    ) || existingOrders.find(o =>
+      o.delivery_window_id === windowId &&
+      o.delivery_date >= weekStart &&
+      o.delivery_date <= weekEnd &&
+      o.status === 'cancelled'
+    ) || null
+  }
+
   function hasExistingOrderThisWeek(): boolean {
     const weekStart = getWeekStart()
     const weekEnd = getWeekEnd()
@@ -561,52 +579,43 @@ function OrderPageInner() {
       const deliveryDate = getDeliveryDate(w.day_of_week)
       const dateStr = deliveryDate.toISOString().split('T')[0]
 
-      const existingOrder = getExistingOrderForWindow(w.id) || await supabase
+      // Include cancelled rows so we can reuse their ID and avoid the unique constraint
+      const reusableOrder = findReusableOrderForWindow(w.id) || await supabase
         .from('orders')
-        .select('id')
+        .select('id, status')
         .eq('customer_id', selectedCustomerId)
         .eq('delivery_window_id', w.id)
         .gte('delivery_date', weekStart)
         .lte('delivery_date', weekEnd)
-        .neq('status', 'cancelled')
         .maybeSingle()
         .then(r => r.data)
-
-      let orderId: string
-
-      if (existingOrder?.id) {
-        orderId = existingOrder.id
-        const { error: delError } = await supabase.from('order_items').delete().eq('order_id', orderId)
-        if (delError) { setError(`Failed to clear existing items: ${delError.message}`); setSubmitting(false); return }
-        const { error: updateError } = await supabase.from('orders').update({
-          status: 'pending', is_par: false, delivery_date: dateStr,
-          customer_notes: notes || null, submitted_at: new Date().toISOString(),
-        }).eq('id', orderId)
-        if (updateError) { setError(`Failed to update order: ${updateError.message}`); setSubmitting(false); return }
-      } else {
-        const { data: order, error: orderError } = await supabase
-          .from('orders')
-          .insert({
-            customer_id: selectedCustomerId, delivery_window_id: w.id,
-            delivery_date: dateStr, status: 'pending', is_par: false,
-            customer_notes: notes || null, submitted_at: new Date().toISOString(),
-          })
-          .select().single()
-
-        if (orderError || !order) { setError(orderError?.message || 'Error creating order'); setSubmitting(false); return }
-        orderId = order.id
-      }
 
       const orderItems = products
         .filter(p => mergedQty(w.id, p.id) > 0)
         .map(p => ({
-          order_id: orderId, customer_id: selectedCustomerId,
+          customer_id: selectedCustomerId,
           product_id: p.id, delivery_window_id: w.id,
           quantity: mergedQty(w.id, p.id), sliced: mergedSliced(w.id, p.id),
         }))
 
-      const { error: itemsError } = await supabase.from('order_items').insert(orderItems)
-      if (itemsError) { setError(itemsError.message); setSubmitting(false); return }
+      const submitRes = await fetch('/api/submit-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: reusableOrder?.id || null,
+          customerId: selectedCustomerId,
+          deliveryWindowId: w.id,
+          deliveryDate: dateStr,
+          notes,
+          items: orderItems,
+        }),
+      })
+      if (!submitRes.ok) {
+        const { error } = await submitRes.json()
+        setError(error || 'Failed to submit order.')
+        setSubmitting(false)
+        return
+      }
     }
 
     const cutoffSunday = getSelectedSunday(weekOffset)
