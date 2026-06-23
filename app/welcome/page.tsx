@@ -55,9 +55,18 @@ export default function WelcomePage() {
     if (password.length < 8) { setError('Password must be at least 8 characters.'); return }
     setLoading(true)
     setError(null)
-    const { error } = await supabase.auth.updateUser({ password })
-    if (error) { setError(error.message); setLoading(false) }
-    else { router.push('/onboarding') }
+    try {
+      const { error } = await supabase.auth.updateUser({ password })
+      if (error) {
+        setError(`Failed to set password: ${error.message}`)
+        setLoading(false)
+        return
+      }
+      router.push('/onboarding')
+    } catch (err: any) {
+      setError(`Error: ${err.message || 'Failed to set password'}`)
+      setLoading(false)
+    }
   }
 
   return (
