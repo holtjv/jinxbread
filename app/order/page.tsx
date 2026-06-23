@@ -39,7 +39,7 @@ function WeekTiles({
         const weekStart = getWeekStart(offset)
         const weekEnd = getWeekEnd(offset)
         const hasOrder = existingOrders.some(o =>
-          o.delivery_date >= weekStart && o.delivery_date <= weekEnd
+          o.delivery_date >= weekStart && o.delivery_date <= weekEnd && o.status !== 'cancelled'
         )
         const isSelected = weekOffset === offset
 
@@ -372,7 +372,7 @@ function OrderPageInner() {
     setNotes(existingOrders.find(o => {
       const ws = getWeekStart()
       const we = getWeekEnd()
-      return o.delivery_date >= ws && o.delivery_date <= we && o.customer_notes
+      return o.delivery_date >= ws && o.delivery_date <= we && o.status !== 'cancelled' && o.customer_notes
     })?.customer_notes || '')
     setStep('order')
     setError(null)
