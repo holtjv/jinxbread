@@ -16,14 +16,25 @@ export default function LoginPage() {
   const supabase = createClient()
 
   useEffect(() => {
-    // Listen for auth state changes. If user is authenticated, redirect to /welcome
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const checkAuth = async () => {
+      // Check current session (reads from hash, localStorage, cookies)
+      const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
         router.replace('/welcome')
+        return
       }
-    })
 
-    return () => subscription.unsubscribe()
+      // Also listen for auth state changes for future changes
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        if (session?.user) {
+          router.replace('/welcome')
+        }
+      })
+
+      return () => subscription.unsubscribe()
+    }
+
+    checkAuth()
   }, [])
 
   async function handleLogin(e: React.FormEvent) {
