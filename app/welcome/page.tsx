@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 
@@ -9,8 +9,18 @@ export default function WelcomePage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [ready, setReady] = useState(false)
   const router = useRouter()
   const supabase = createClient()
+
+  useEffect(() => {
+    // Process the hash tokens and establish the session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setReady(true)
+      }
+    })
+  }, [])
 
   async function handleSetPassword(e: React.FormEvent) {
     e.preventDefault()
@@ -31,6 +41,17 @@ export default function WelcomePage() {
     }
 
     router.push('/onboarding')
+  }
+
+  if (!ready) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <img src="/logo.png" alt="Jinx Bread" style={{ width: 100, height: 'auto', marginBottom: 24 }} />
+          <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>Loading...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
