@@ -17,7 +17,9 @@ export default function WelcomePage() {
 
   useEffect(() => {
     async function checkSession() {
+      console.log('Welcome page - checking session, URL hash:', window.location.hash.substring(0, 50))
       const { data: { session } } = await supabase.auth.getSession()
+      console.log('Welcome page - session:', session?.user?.email)
       if (session?.user) {
         setCurrentUser(session.user)
         setReady(true)
@@ -27,6 +29,9 @@ export default function WelcomePage() {
           .eq('email', session.user.email)
           .single()
         if (cu) setCustomerName((cu.customers as any)?.name || null)
+      } else {
+        console.log('Welcome page - no session, redirecting to login')
+        router.replace('/login')
       }
     }
     checkSession()
