@@ -142,7 +142,10 @@ export default function AdminPage() {
     if (parsRes.data) setAllPars(parsRes.data)
     if (customersRes.data) {
       setCustomers(customersRes.data)
-      setSelectedCustomerId(customersRes.data[0]?.id || null)
+      // Only reset selectedCustomerId if not already set or if in an invite flow
+      if (!selectedCustomerId && !invitePrompt) {
+        setSelectedCustomerId(customersRes.data[0]?.id || null)
+      }
     }
     if (allCustomersRes.data) setAllCustomers(allCustomersRes.data)
     if (productsRes.data) setProducts(productsRes.data)
