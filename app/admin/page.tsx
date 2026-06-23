@@ -12,6 +12,7 @@ const CUSTOMER_TYPES = ['restaurant', 'grocery']
 const EMPTY_CUSTOMER = {
   name: '', contact_name: '', email: '', phone: '',
   type: 'restaurant', address: '', notes: '', active: true,
+  is_admin: false,
 }
 
 const EMPTY_PRODUCT = {
@@ -259,6 +260,7 @@ export default function AdminPage() {
       name: c.name || '', contact_name: c.contact_name || '', email: c.email || '',
       phone: c.phone || '', type: c.type || 'restaurant',
       address: c.address || '', notes: c.notes || '', active: c.active ?? true,
+      is_admin: c.is_admin ?? false,
     })
     setCustomerError(null)
     setCustomerSuccess(null)
@@ -284,6 +286,7 @@ export default function AdminPage() {
       type: customerForm.type,
       address: customerForm.address.trim() || null, notes: customerForm.notes.trim() || null,
       active: customerForm.active,
+      is_admin: false,
     }
     const isNew = editingCustomer === 'new'
     if (isNew) {
