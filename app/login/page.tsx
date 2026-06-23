@@ -16,14 +16,14 @@ export default function LoginPage() {
   const supabase = createClient()
 
   useEffect(() => {
-    // If there's an access_token in the URL hash, this is likely an invite link
-    // Redirect to /welcome to complete account setup
-    if (typeof window !== 'undefined') {
-      const hash = window.location.hash
-      if (hash.includes('access_token') && hash.includes('type=invite')) {
+    // Listen for auth state changes. If user is authenticated, redirect to /welcome
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
         router.replace('/welcome')
       }
-    }
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   async function handleLogin(e: React.FormEvent) {
