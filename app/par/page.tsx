@@ -87,7 +87,8 @@ export default function ParPage() {
       const prods = prodsRes.data || []
       setProducts(prods)
       setDeliveryWindows(sortedWindows)
-      if (customer.is_admin) {
+      console.log('customer data:', customer, 'is_admin:', customer?.is_admin)
+      if (customer?.is_admin === true) {
         setIsAdmin(true)
         const { data: customers } = await supabase.from('customers').select('id, name').eq('active', true).order('name')
         setAllCustomers(customers || [])
