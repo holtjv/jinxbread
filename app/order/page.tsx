@@ -353,11 +353,13 @@ function OrderPageInner() {
         const baseTue = getBaseTuesday()
         const baseWeekStart = baseTue.toISOString().split('T')[0]
         const baseWeekEnd = new Date(new Date(baseTue).setDate(baseTue.getDate() + 6)).toISOString().split('T')[0]
-        const hasOrderThisWeek = (await supabase.from('orders').select('id, delivery_date')
+        const ordersThisWeekRes = await supabase.from('orders').select('id, delivery_date, status')
           .eq('customer_id', targetId)
           .gte('delivery_date', baseWeekStart)
           .lte('delivery_date', baseWeekEnd)
-          .neq('status', 'cancelled')).data?.length ?? 0
+          .neq('status', 'cancelled')
+        console.log('weekOffset auto-advance check:', { baseWeekStart, baseWeekEnd, orders: ordersThisWeekRes.data })
+        const hasOrderThisWeek = ordersThisWeekRes.data?.length ?? 0
         if (hasOrderThisWeek > 0) setWeekOffset(1)
       }
 
