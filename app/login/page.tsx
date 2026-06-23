@@ -16,14 +16,24 @@ export default function LoginPage() {
   const supabase = createClient()
 
   useEffect(() => {
-    // If there's an invite token in the hash, redirect to /welcome preserving the hash
-    if (typeof window !== 'undefined') {
+    const handleInviteRedirect = async () => {
+      if (typeof window === 'undefined') return
+
       const hash = window.location.hash
-      if (hash.includes('access_token') && hash.includes('type=invite')) {
-        window.location.replace('/welcome' + hash)
-        return
+      if (!hash.includes('access_token') || !hash.includes('type=invite')) return
+
+      // Process the hash tokens by calling getSession
+      // This forces Supabase to extract tokens from the hash and store in localStorage/cookies
+      const { data: { session } } = await supabase.auth.getSession()
+
+      // If session was established, redirect to /welcome without the hash
+      // The session is now in localStorage/cookies so it will be available there
+      if (session?.user) {
+        window.location.replace('/welcome')
       }
     }
+
+    handleInviteRedirect()
   }, [])
 
   async function handleLogin(e: React.FormEvent) {
