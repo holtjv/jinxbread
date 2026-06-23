@@ -295,7 +295,10 @@ export default function AdminPage() {
     if (isNew) {
       const { data, error } = await supabase.from('customers').insert(payload).select().single()
       if (error) { setCustomerError(error.message); setSavingCustomer(false); return }
-      if (data) setInvitePrompt({ name: customerForm.name.trim(), email: customerForm.email.trim(), customerId: data.id })
+      if (data) {
+        console.log('Created customer:', { name: data.name, id: data.id })
+        setInvitePrompt({ name: customerForm.name.trim(), email: customerForm.email.trim(), customerId: data.id })
+      }
       setCustomerSuccess('Customer added')
     } else {
       const { error } = await supabase.from('customers').update(payload).eq('id', editingCustomer.id)
@@ -311,6 +314,7 @@ export default function AdminPage() {
   async function handleSendInvite() {
     if (!invitePrompt) return
     setSendingInvite(true)
+    console.log('Sending invite:', { email: invitePrompt.email, customer_id: invitePrompt.customerId, name: invitePrompt.name })
     const res = await fetch('/api/admin/invite-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
