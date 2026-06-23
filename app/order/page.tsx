@@ -356,7 +356,8 @@ function OrderPageInner() {
         const hasOrderThisWeek = (await supabase.from('orders').select('id, delivery_date')
           .eq('customer_id', targetId)
           .gte('delivery_date', baseWeekStart)
-          .lte('delivery_date', baseWeekEnd)).data?.length ?? 0
+          .lte('delivery_date', baseWeekEnd)
+          .neq('status', 'cancelled')).data?.length ?? 0
         if (hasOrderThisWeek > 0) setWeekOffset(1)
       }
 
