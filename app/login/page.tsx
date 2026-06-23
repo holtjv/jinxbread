@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 
@@ -14,6 +14,17 @@ export default function LoginPage() {
   const [resetLoading, setResetLoading] = useState(false)
   const router = useRouter()
   const supabase = createClient()
+
+  useEffect(() => {
+    // If there's an access_token in the URL hash, this is likely an invite link
+    // Redirect to /welcome to complete account setup
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash
+      if (hash.includes('access_token') && hash.includes('type=invite')) {
+        router.replace('/welcome')
+      }
+    }
+  }, [])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
