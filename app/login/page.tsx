@@ -22,12 +22,16 @@ export default function LoginPage() {
       const hash = window.location.hash
       if (!hash.includes('access_token') || !hash.includes('type=invite')) return
 
-      // Process the hash tokens by calling getSession
-      // This forces Supabase to extract tokens from the hash and store in localStorage/cookies
-      const { data: { session } } = await supabase.auth.getSession()
+      // createBrowserClient (@supabase/ssr) is cookie-based and does not auto-parse
+      // URL hash tokens. Parse them manually and call setSession() directly.
+      const params = new URLSearchParams(hash.slice(1))
+      const access_token = params.get('access_token')
+      const refresh_token = params.get('refresh_token')
 
-      // If session was established, redirect to /welcome without the hash
-      // The session is now in localStorage/cookies so it will be available there
+      if (!access_token || !refresh_token) return
+
+      const { data: { session }, error } = await supabase.auth.setSession({ access_token, refresh_token })
+
       if (session?.user) {
         window.location.replace('/welcome')
       }
