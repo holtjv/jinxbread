@@ -11,17 +11,13 @@ export default function WelcomePage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [ready, setReady] = useState(false)
-  const [currentUser, setCurrentUser] = useState<any>(null)
   const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
     async function checkSession() {
-      console.log('Welcome page - checking session, URL hash:', window.location.hash.substring(0, 50))
       const { data: { session } } = await supabase.auth.getSession()
-      console.log('Welcome page - session:', session?.user?.email)
       if (session?.user) {
-        setCurrentUser(session.user)
         setReady(true)
         const { data: cu } = await supabase
           .from('customer_users')
@@ -29,59 +25,51 @@ export default function WelcomePage() {
           .eq('email', session.user.email)
           .single()
         if (cu) setCustomerName((cu.customers as any)?.name || null)
-      } else {
-        // No session yet - could be establishing from invite token
-        // onAuthStateChange will handle it when session is ready
-        console.log('Welcome page - waiting for auth state...')
+        return
+      }
+
+      // No session yet - wait for auth state change
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
+          setReady(true)
+          supabase
+            .from('customer_users')
+            .select('customer_id, customers(name)')
+            .eq('email', session.user.email)
+            .single()
+            .then(({ data: cu }) => {
+              if (cu) setCustomerName((cu.customers as any)?.name || null)
+            })
+        }
+      })
+
+      return () => subscription.unsubscribe()
+    }
+
+    const unsubscribe = checkSession()
+    return () => {
+      if (unsubscribe instanceof Promise) {
+        unsubscribe.then(unsub => unsub?.())
+      } else if (unsubscribe) {
+        unsubscribe()
       }
     }
-    checkSession()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if ((event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') && session?.user) {
-        setCurrentUser(session.user)
-        setReady(true)
-        const { data: cu } = await supabase
-          .from('customer_users')
-          .select('customer_id, customers(name)')
-          .eq('email', session.user.email)
-          .single()
-        if (cu) setCustomerName((cu.customers as any)?.name || null)
-      }
-    })
-    return () => subscription.unsubscribe()
   }, [])
 
   async function handleSetPassword(e: React.FormEvent) {
     e.preventDefault()
     if (password.length < 8) { setError('Password must be at least 8 characters.'); return }
-    if (!currentUser) { setError('Not authenticated. Please try clicking the invite link again.'); return }
-
     setLoading(true)
     setError(null)
-    try {
-      const { error } = await supabase.auth.updateUser({ password })
-      if (error) {
-        setError(`Failed to set password: ${error.message}`)
-        setLoading(false)
-        return
-      }
-      // Sign out and back in to refresh session with new password
-      await supabase.auth.signOut()
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: currentUser.email,
-        password
-      })
-      if (signInError) {
-        setError(`Password set but sign in failed: ${signInError.message}`)
-        setLoading(false)
-        return
-      }
-      router.push('/onboarding')
-    } catch (err: any) {
-      setError(`Error: ${err.message || 'Failed to set password'}`)
+
+    const { error } = await supabase.auth.updateUser({ password })
+    if (error) {
+      setError(error.message)
       setLoading(false)
+      return
     }
+
+    router.push('/onboarding')
   }
 
   return (
