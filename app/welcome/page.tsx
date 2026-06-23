@@ -11,17 +11,15 @@ export default function WelcomePage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [ready, setReady] = useState(false)
+  const [currentUser, setCurrentUser] = useState<any>(null)
   const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
-    // Check if user arrived via a magic link (token in URL hash)
-    const hash = window.location.hash
-    const hasToken = hash.includes('access_token') || hash.includes('type=invite') || hash.includes('type=recovery')
-
     async function checkSession() {
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
+        setCurrentUser(session.user)
         setReady(true)
         const { data: cu } = await supabase
           .from('customer_users')
@@ -29,15 +27,13 @@ export default function WelcomePage() {
           .eq('email', session.user.email)
           .single()
         if (cu) setCustomerName((cu.customers as any)?.name || null)
-      } else if (!hasToken) {
-        // Not authenticated and no token in URL — redirect to login
-        router.replace('/login')
       }
     }
     checkSession()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if ((event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') && session?.user) {
+        setCurrentUser(session.user)
         setReady(true)
         const { data: cu } = await supabase
           .from('customer_users')
@@ -53,12 +49,25 @@ export default function WelcomePage() {
   async function handleSetPassword(e: React.FormEvent) {
     e.preventDefault()
     if (password.length < 8) { setError('Password must be at least 8 characters.'); return }
+    if (!currentUser) { setError('Not authenticated. Please try clicking the invite link again.'); return }
+
     setLoading(true)
     setError(null)
     try {
       const { error } = await supabase.auth.updateUser({ password })
       if (error) {
         setError(`Failed to set password: ${error.message}`)
+        setLoading(false)
+        return
+      }
+      // Sign out and back in to refresh session with new password
+      await supabase.auth.signOut()
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: currentUser.email,
+        password
+      })
+      if (signInError) {
+        setError(`Password set but sign in failed: ${signInError.message}`)
         setLoading(false)
         return
       }
