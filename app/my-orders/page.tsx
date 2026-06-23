@@ -13,6 +13,8 @@ export default function MyOrdersPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [allCustomers, setAllCustomers] = useState<any[]>([])
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null)
+  const [isCancelSubmitting, setIsCancelSubmitting] = useState(false)
   const supabase = createClient()
 
   async function loadOrders(targetId: string) {
@@ -162,6 +164,24 @@ export default function MyOrdersPage() {
 
   function fmtCancelledAt(updatedAt: string) {
     return new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  }
+
+  async function handleCancelOrder() {
+    if (!cancellingOrderId) return
+    setIsCancelSubmitting(true)
+    try {
+      const res = await fetch('/api/cancel-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderIds: [cancellingOrderId] }),
+      })
+      if (res.ok) {
+        setOrders(orders.map(o => o.id === cancellingOrderId ? { ...o, status: 'cancelled' } : o))
+        setCancellingOrderId(null)
+      }
+    } finally {
+      setIsCancelSubmitting(false)
+    }
   }
 
   function buildUpcomingRows() {
@@ -336,7 +356,10 @@ export default function MyOrdersPage() {
                           : <>
                               <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{row.combinedTotal} loaves</span>
                               {row.editable
-                                ? <a href={row.editUrl} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit</a>
+                                ? <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <a href={row.editUrl} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit</a>
+                                    <a onClick={e => { e.stopPropagation(); setCancellingOrderId(row.manualOrderId) }} style={{ fontSize: 13, color: '#dc2626', textDecoration: 'none', fontWeight: 500, cursor: 'pointer' }}>Cancel</a>
+                                  </div>
                                 : <span style={{ fontSize: 13, color: 'var(--gray-400)' }}>Submitted</span>
                               }
                             </>
@@ -416,7 +439,10 @@ export default function MyOrdersPage() {
                           : <>
                               <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{loaves} loaves</span>
                               {editable
-                                ? <a href={getEditUrl(order.delivery_date)} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit</a>
+                                ? <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <a href={getEditUrl(order.delivery_date)} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>Edit</a>
+                                    <a onClick={e => { e.stopPropagation(); setCancellingOrderId(order.id) }} style={{ fontSize: 13, color: '#dc2626', textDecoration: 'none', fontWeight: 500, cursor: 'pointer' }}>Cancel</a>
+                                  </div>
                                 : <span style={{ fontSize: 13, color: 'var(--gray-400)' }}>{statusLabel(order.status, order.is_par)}</span>
                               }
                             </>
@@ -442,6 +468,31 @@ export default function MyOrdersPage() {
             </>
           )}
         </>
+      )}
+
+      {cancellingOrderId && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'white', borderRadius: 8, padding: 24, maxWidth: 400, boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
+            <h2 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px 0', color: 'var(--gray-900)' }}>Cancel order?</h2>
+            <p style={{ fontSize: 14, color: 'var(--gray-600)', margin: '0 0 24px 0' }}>Are you sure you want to cancel this order? This action cannot be undone.</p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setCancellingOrderId(null)}
+                disabled={isCancelSubmitting}
+                style={{ fontSize: 14, padding: '8px 16px', borderRadius: 6, border: '1px solid var(--gray-300)', background: 'white', color: 'var(--gray-700)', fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font)' }}
+              >
+                Keep order
+              </button>
+              <button
+                onClick={handleCancelOrder}
+                disabled={isCancelSubmitting}
+                style={{ fontSize: 14, padding: '8px 16px', borderRadius: 6, border: 'none', background: '#dc2626', color: 'white', fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font)' }}
+              >
+                {isCancelSubmitting ? 'Cancelling...' : 'Cancel order'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
