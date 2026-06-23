@@ -16,6 +16,15 @@ export default function LoginPage() {
   const supabase = createClient()
 
   useEffect(() => {
+    // If there's an invite token in the hash, go to /welcome
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash
+      if (hash.includes('access_token') && hash.includes('type=invite')) {
+        router.replace('/welcome')
+        return
+      }
+    }
+
     // Listen for auth state changes (fires when hash is processed)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
@@ -24,7 +33,7 @@ export default function LoginPage() {
     })
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, [router])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
