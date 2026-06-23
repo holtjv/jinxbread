@@ -11,7 +11,7 @@ const CUSTOMER_TYPES = ['restaurant', 'grocery']
 
 const EMPTY_CUSTOMER = {
   name: '', contact_name: '', email: '', phone: '',
-  type: 'restaurant', delivery_day: 'tuesday', address: '', notes: '', active: true,
+  type: 'restaurant', address: '', notes: '', active: true,
 }
 
 const EMPTY_PRODUCT = {
@@ -257,7 +257,7 @@ export default function AdminPage() {
     setInviteResult(null)
     setCustomerForm({
       name: c.name || '', contact_name: c.contact_name || '', email: c.email || '',
-      phone: c.phone || '', type: c.type || 'restaurant', delivery_day: c.delivery_day || 'tuesday',
+      phone: c.phone || '', type: c.type || 'restaurant',
       address: c.address || '', notes: c.notes || '', active: c.active ?? true,
     })
     setCustomerError(null)
@@ -281,7 +281,7 @@ export default function AdminPage() {
     const payload = {
       name: customerForm.name.trim(), contact_name: customerForm.contact_name.trim() || null,
       email: customerForm.email.trim(), phone: customerForm.phone.trim() || null,
-      type: customerForm.type, delivery_day: customerForm.delivery_day,
+      type: customerForm.type,
       address: customerForm.address.trim() || null, notes: customerForm.notes.trim() || null,
       active: customerForm.active,
     }
@@ -652,7 +652,6 @@ export default function AdminPage() {
                 <div style={formRowStyle}><label className="form-label">Email *</label><input type="email" style={formFieldStyle} value={customerForm.email} onChange={e => setCustomerForm((p: any) => ({ ...p, email: e.target.value }))} /></div>
                 <div style={formRowStyle}><label className="form-label">Phone</label><input style={formFieldStyle} value={customerForm.phone} onChange={e => setCustomerForm((p: any) => ({ ...p, phone: e.target.value }))} /></div>
                 <div style={formRowStyle}><label className="form-label">Type</label><select style={formFieldStyle} value={customerForm.type} onChange={e => setCustomerForm((p: any) => ({ ...p, type: e.target.value }))}>{CUSTOMER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
-                <div style={formRowStyle}><label className="form-label">Delivery day</label><select style={formFieldStyle} value={customerForm.delivery_day} onChange={e => setCustomerForm((p: any) => ({ ...p, delivery_day: e.target.value }))}>{DAYS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}</select></div>
                 <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}><label className="form-label">Address</label><input style={formFieldStyle} value={customerForm.address} onChange={e => setCustomerForm((p: any) => ({ ...p, address: e.target.value }))} /></div>
                 <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}><label className="form-label">Notes</label><textarea style={{ ...formFieldStyle, resize: 'vertical' }} rows={2} value={customerForm.notes} onChange={e => setCustomerForm((p: any) => ({ ...p, notes: e.target.value }))} /></div>
                 <div style={formRowStyle}><label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 }}><input type="checkbox" checked={customerForm.active} onChange={e => setCustomerForm((p: any) => ({ ...p, active: e.target.checked }))} />Active</label></div>
