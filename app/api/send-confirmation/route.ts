@@ -28,8 +28,7 @@ async function sendAlertEmail(intendedTo: string, emailType: string, errorMsg: s
 }
 
 export async function POST(request: Request) {
-  console.log('[send-confirmation] BAKERY_NAME:', process.env.BAKERY_NAME)
-  const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing } = await request.json()
+const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing } = await request.json()
 
   if (!customer_id || !week_start || !week_end) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
