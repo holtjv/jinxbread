@@ -28,7 +28,7 @@ async function sendAlertEmail(intendedTo: string, emailType: string, errorMsg: s
 }
 
 export async function POST(request: Request) {
-const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing } = await request.json()
+const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing, is_admin } = await request.json()
 
   if (!customer_id || !week_start || !week_end) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -160,16 +160,18 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
     emailFailed = true
   }
 
-  try {
-    await resend.emails.send({
-      from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
-      to: BAKERY_ADMIN_EMAIL,
-      subject: bakerySubject,
-      html: bakeryHtml,
-    })
-  } catch (err: any) {
-    console.error('send-confirmation: bakery notification failed:', err)
-    await sendAlertEmail(BAKERY_ADMIN_EMAIL, 'bakery order notification', err.message)
+  if (!is_admin) {
+    try {
+      await resend.emails.send({
+        from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
+        to: BAKERY_ADMIN_EMAIL,
+        subject: bakerySubject,
+        html: bakeryHtml,
+      })
+    } catch (err: any) {
+      console.error('send-confirmation: bakery notification failed:', err)
+      await sendAlertEmail(BAKERY_ADMIN_EMAIL, 'bakery order notification', err.message)
+    }
   }
 
   return NextResponse.json({ success: true, emailFailed })

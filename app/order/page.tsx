@@ -623,7 +623,7 @@ function OrderPageInner() {
           customer_id: selectedCustomerId,
           week_start: getWeekStart(), week_end: getWeekEnd(),
           week_range: getWeekRange(), cutoff_string: cutoffStr,
-          is_editing: isEditing,
+          is_editing: isEditing, is_admin: isAdmin,
         }),
       })
       const emailData = await emailRes.json()
