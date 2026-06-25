@@ -17,7 +17,7 @@ const EMPTY_CUSTOMER = {
 
 const EMPTY_PRODUCT = {
   name: '', sku: '', price_cents: '', unit_label: 'loaf',
-  can_be_sliced: false, active: true, sort_order: '', minimum_quantity: '10',
+  can_be_sliced: false, active: true, minimum_quantity: '10',
 }
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
@@ -337,7 +337,7 @@ export default function AdminPage() {
       name: p.name || '', sku: p.sku || '',
       price_cents: p.price_cents ? (p.price_cents / 100).toFixed(2) : '',
       unit_label: p.unit_label || 'loaf', can_be_sliced: p.can_be_sliced ?? false,
-      active: p.active ?? true, sort_order: p.sort_order ?? '',
+      active: p.active ?? true,
       minimum_quantity: p.minimum_quantity ?? '10',
     })
     setProductError(null)
@@ -360,7 +360,7 @@ export default function AdminPage() {
       name: productForm.name.trim(), sku: productForm.sku.trim(),
       price_cents: productForm.price_cents ? Math.round(parseFloat(productForm.price_cents) * 100) : null,
       unit_label: productForm.unit_label.trim() || 'loaf', can_be_sliced: productForm.can_be_sliced,
-      active: productForm.active, sort_order: productForm.sort_order !== '' ? parseInt(productForm.sort_order) : null,
+      active: productForm.active,
       minimum_quantity: productForm.minimum_quantity !== '' ? parseInt(productForm.minimum_quantity) : 10,
     }
     if (editingProduct === 'new') {
@@ -709,7 +709,6 @@ export default function AdminPage() {
                 <div style={formRowStyle}><label className="form-label">Min/week</label><input type="number" min="0" style={formFieldStyle} value={productForm.minimum_quantity} onChange={e => setProductForm((p: any) => ({ ...p, minimum_quantity: e.target.value }))} /></div>
                 <div style={formRowStyle}><label className="form-label">Default price ($)</label><input type="number" min="0" step="0.01" style={formFieldStyle} value={productForm.price_cents} onChange={e => setProductForm((p: any) => ({ ...p, price_cents: e.target.value }))} /></div>
                 <div style={formRowStyle}><label className="form-label">Unit label</label><input style={formFieldStyle} value={productForm.unit_label} onChange={e => setProductForm((p: any) => ({ ...p, unit_label: e.target.value }))} /></div>
-                <div style={formRowStyle}><label className="form-label">Sort order</label><input type="number" style={formFieldStyle} value={productForm.sort_order} onChange={e => setProductForm((p: any) => ({ ...p, sort_order: e.target.value }))} placeholder="Leave blank to sort alphabetically" /></div>
                 <div style={formRowStyle}><label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, marginTop: 24 }}><input type="checkbox" checked={productForm.can_be_sliced} onChange={e => setProductForm((p: any) => ({ ...p, can_be_sliced: e.target.checked }))} />Can be sliced</label></div>
                 <div style={formRowStyle}><label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, marginTop: 8 }}><input type="checkbox" checked={productForm.active} onChange={e => setProductForm((p: any) => ({ ...p, active: e.target.checked }))} />Active</label></div>
               </div>
