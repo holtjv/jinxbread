@@ -80,7 +80,7 @@ export default function ParPage() {
       const cid = cu.customer_id
       setCustomerId(cid)
       const [prodsRes, windowsRes] = await Promise.all([
-        supabase.from('products').select('*').eq('active', true).order('sort_order'),
+        supabase.from('products').select('*').eq('active', true).order('sort_order', { nullsFirst: false }).order('name'),
         supabase.from('delivery_windows').select('*').eq('active', true).order('sort_order'),
       ])
       const sortedWindows = (windowsRes.data || []).sort((a: any, b: any) => a.sort_order - b.sort_order)

@@ -317,7 +317,7 @@ function OrderPageInner() {
       setCustomerId(cu.customer_id)
 
       const [prodsRes, windowsRes] = await Promise.all([
-        supabase.from('products').select('*').eq('active', true).order('sort_order'),
+        supabase.from('products').select('*').eq('active', true).order('sort_order', { nullsFirst: false }).order('name'),
         supabase.from('delivery_windows').select('*').eq('active', true).order('sort_order'),
       ])
 
@@ -501,12 +501,15 @@ function OrderPageInner() {
     return products.filter(p => mergedQty(windowId, p.id) > 0)
   }
 
-  // Sort products: favorites first, then by sort_order
+  // Sort products: favorites first, then sort_order (nulls last), then name
   const sortedProducts = [...products].sort((a, b) => {
     const aFav = favorites.has(a.id) ? 0 : 1
     const bFav = favorites.has(b.id) ? 0 : 1
     if (aFav !== bFav) return aFav - bFav
-    return (a.sort_order ?? 0) - (b.sort_order ?? 0)
+    const aOrder = a.sort_order ?? Infinity
+    const bOrder = b.sort_order ?? Infinity
+    if (aOrder !== bOrder) return aOrder - bOrder
+    return a.name.localeCompare(b.name)
   })
 
   async function handleCancelOrder() {
