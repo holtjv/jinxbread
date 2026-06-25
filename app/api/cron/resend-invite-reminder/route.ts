@@ -15,6 +15,7 @@ const resend = new Resend(process.env.RESEND_API_KEY)
 const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
 const BAKERY_NAME = process.env.BAKERY_NAME!
 const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
 function isWithin24hWindow(createdAt: string, daysAgo: number): boolean {
   const created = new Date(createdAt).getTime()
