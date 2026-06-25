@@ -13,6 +13,9 @@ const supabase = createClient(
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
+const BAKERY_NAME = process.env.BAKERY_NAME!
+const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
 function getUpcomingTuesday(): Date {
   const today = new Date()
@@ -55,8 +58,8 @@ export async function GET(request: Request) {
   const tuesday = getUpcomingTuesday()
   const monday = getUpcomingMonday()
   const weekRange = `${fmtShort(tuesday)}–${fmtShort(monday)}`
-  const orderUrl = 'https://jinxbread.vercel.app/order'
-  const parUrl = 'https://jinxbread.vercel.app/par'
+  const orderUrl = `${APP_URL}/order`
+  const parUrl = `${APP_URL}/par`
 
   const notified: string[] = []
   const errors: string[] = []
@@ -66,7 +69,7 @@ export async function GET(request: Request) {
 
     try {
       await resend.emails.send({
-        from: 'Jinx Bread <orders@jinxbread.com>',
+        from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
         to: customer.email,
         subject: `Orders close at noon today — ${weekRange}`,
         html: buildSundayReminderHtml(firstName, weekRange, orderUrl, parUrl),
@@ -77,7 +80,7 @@ export async function GET(request: Request) {
       errors.push(`Failed to send to ${customer.email}: ${err.message}`)
       try {
         await resend.emails.send({
-          from: 'Jinx Bread <orders@jinxbread.com>',
+          from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
           to: BAKERY_ADMIN_EMAIL,
           subject: 'Email Send Failure: sunday-reminder',
           html: `<p>Failed to send <strong>Sunday reminder</strong> to <strong>${customer.email}</strong>.</p><p>Error: ${err.message}</p>`,
@@ -104,7 +107,7 @@ function buildSundayReminderHtml(
 <!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
-  <img src="https://jinxbread.vercel.app/logo.png" alt="Jinx Bread" style="width: 80px; height: auto; margin-bottom: 24px;" />
+  <img src="${APP_URL}/logo.png" alt="${BAKERY_NAME}" style="width: 80px; height: auto; margin-bottom: 24px;" />
   <h2 style="margin: 0 0 8px 0; font-size: 20px;">Orders close at noon today</h2>
   <p style="color: #555; margin: 0 0 16px 0;">Hi ${firstName},</p>
   <p style="color: #555; margin: 0 0 16px 0;">
@@ -114,7 +117,7 @@ function buildSundayReminderHtml(
   <p style="color: #555; margin: 0 0 16px 0;">
     Need to make changes or place a one-time order? You've got until noon.
   </p>
-  <p style="color: #555; margin: 0 0 24px 0;">Place and track your Jinx Bread orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
+  <p style="color: #555; margin: 0 0 24px 0;">Place and track your ${BAKERY_NAME} orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
   <table style="margin: 0 0 24px 0;">
     <tr>
       <td style="padding-right: 12px;">
@@ -133,7 +136,7 @@ function buildSundayReminderHtml(
   </table>
   <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
   <p style="color: #bbb; font-size: 12px; margin: 0;">
-    Jinx Bread · Austin, TX · <a href="https://jinxbread.vercel.app/settings" style="color: #bbb;">Manage notifications</a>
+    ${BAKERY_NAME} · <a href="${APP_URL}/settings" style="color: #bbb;">Manage notifications</a>
   </p>
 </body>
 </html>

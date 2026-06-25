@@ -13,6 +13,9 @@ const supabase = createClient(
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
+const BAKERY_NAME = process.env.BAKERY_NAME!
+const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
 const DAY_OF_WEEK_TO_OFFSET: Record<string, number> = {
   monday:    8,
@@ -115,7 +118,7 @@ async function sendParConfirmation(
 <!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
-  <img src="https://jinxbread.vercel.app/logo.png" alt="Jinx Bread" style="width: 80px; height: auto; margin-bottom: 24px;" />
+  <img src="${APP_URL}/logo.png" alt="${BAKERY_NAME}" style="width: 80px; height: auto; margin-bottom: 24px;" />
   <p style="color: #555; margin: 0 0 12px 0;">Hi ${firstName},</p>
   <p style="color: #555; margin: 0 0 20px 0;">
     Your standing order for <strong>${weekRange}</strong> has been automatically submitted.
@@ -127,21 +130,21 @@ async function sendParConfirmation(
   </div>
   ${orderRowsHtml}
   <p style="margin: 28px 0;">
-    <a href="https://jinxbread.vercel.app/my-orders"
+    <a href="${APP_URL}/my-orders"
        style="display: inline-block; background: #1a1a1a; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px;">
       View or edit your order
     </a>
   </p>
   <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
-  <p style="color: #bbb; font-size: 12px; margin: 0;">Jinx Bread · Austin, TX · Reply to this email with any questions.</p>
+  <p style="color: #bbb; font-size: 12px; margin: 0;">${BAKERY_NAME} · Reply to this email with any questions.</p>
 </body>
 </html>
 `
 
   await resend.emails.send({
-    from: 'Jinx Bread <orders@jinxbread.com>',
+    from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
     to: customer.email,
-    subject: `Your standing order for ${weekRange} has been submitted`,
+    subject: `Your ${BAKERY_NAME} standing order for ${weekRange} has been submitted`,
     html,
   })
 }
@@ -277,7 +280,7 @@ export async function GET(request: Request) {
         errors.push(`Email error for customer ${customer.id}: ${err.message}`)
         try {
           await resend.emails.send({
-            from: 'Jinx Bread <orders@jinxbread.com>',
+            from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
             to: BAKERY_ADMIN_EMAIL,
             subject: 'Email Send Failure: submit-par-orders',
             html: `<p>Failed to send <strong>par order confirmation</strong> to customer <strong>${customer.name}</strong> (${customer.email}).</p><p>Error: ${err.message}</p>`,

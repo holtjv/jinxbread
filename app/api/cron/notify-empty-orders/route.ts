@@ -13,6 +13,9 @@ const supabase = createClient(
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
+const BAKERY_NAME = process.env.BAKERY_NAME!
+const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
 function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string } {
   const day = fromDate.getUTCDay()
@@ -86,7 +89,7 @@ export async function GET(request: Request) {
   <ul style="margin: 16px 0; padding-left: 20px; color: #444; font-size: 14px;">
     ${listHtml}
   </ul>
-  <a href="https://jinxbread.vercel.app/admin"
+  <a href="${APP_URL}/admin"
      style="display: inline-block; background: #1a1a1a; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px;">
     View in admin
   </a>
@@ -96,7 +99,7 @@ export async function GET(request: Request) {
 
   try {
     await resend.emails.send({
-      from: 'Jinx Bread <orders@jinxbread.com>',
+      from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
       to: BAKERY_ADMIN_EMAIL,
       subject,
       html,
@@ -106,7 +109,7 @@ export async function GET(request: Request) {
     console.error('notify-empty-orders: email failed:', err)
     try {
       await resend.emails.send({
-        from: 'Jinx Bread <orders@jinxbread.com>',
+        from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
         to: BAKERY_ADMIN_EMAIL,
         subject: 'Email Send Failure: notify-empty-orders',
         html: `<p>Failed to send <strong>empty orders notification</strong> to <strong>${BAKERY_ADMIN_EMAIL}</strong>.</p><p>Error: ${err.message}</p>`,

@@ -10,11 +10,14 @@ const supabase = createClient(
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
+const BAKERY_NAME = process.env.BAKERY_NAME!
+const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
 async function sendAlertEmail(intendedTo: string, emailType: string, errorMsg: string) {
   try {
     await resend.emails.send({
-      from: 'Jinx Bread <orders@jinxbread.com>',
+      from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
       to: BAKERY_ADMIN_EMAIL,
       subject: 'Email Send Failure: send-confirmation',
       html: `<p>Failed to send <strong>${emailType}</strong> to <strong>${intendedTo}</strong>.</p><p>Error: ${errorMsg}</p>`,
@@ -62,7 +65,7 @@ export async function POST(request: Request) {
 
   const firstName = customer.contact_name?.split(' ')[0] || customer.name
   const isPar = orders.every((o: any) => o.is_par)
-  const subject = `Your Jinx Bread order for ${week_range}`
+  const subject = `Your ${BAKERY_NAME} order for ${week_range}`
 
   const actionText = isPar
     ? `Your standing order for <strong>${week_range}</strong> has been automatically submitted.`
@@ -102,10 +105,10 @@ export async function POST(request: Request) {
 <!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
-  <img src="https://jinxbread.vercel.app/logo.png" alt="Jinx Bread" style="width: 80px; height: auto; margin-bottom: 24px;" />
+  <img src="${APP_URL}/logo.png" alt="${BAKERY_NAME}" style="width: 80px; height: auto; margin-bottom: 24px;" />
   <p style="color: #555; margin: 0 0 12px 0;">Hi ${firstName},</p>
   <p style="color: #555; margin: 0 0 20px 0;">${actionText}</p>
-  <p style="color: #555; margin: 0 0 20px 0;">Place and track your Jinx Bread orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
+  <p style="color: #555; margin: 0 0 20px 0;">Place and track your ${BAKERY_NAME} orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
   <div style="background: #f0f7ff; border-left: 3px solid #2563eb; padding: 12px 16px; margin-bottom: 28px; border-radius: 0 6px 6px 0;">
     <p style="margin: 0; font-size: 14px; font-weight: 700; color: #1a1a1a;">
       You may edit this order until ${cutoff_string} at noon.
@@ -113,13 +116,13 @@ export async function POST(request: Request) {
   </div>
   ${orderRowsHtml}
   <p style="margin: 28px 0;">
-    <a href="https://jinxbread.vercel.app/my-orders"
+    <a href="${APP_URL}/my-orders"
        style="display: inline-block; background: #1a1a1a; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px;">
       View or edit your order
     </a>
   </p>
   <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
-  <p style="color: #bbb; font-size: 12px; margin: 0;">Jinx Bread · Austin, TX · Reply to this email with any questions.</p>
+  <p style="color: #bbb; font-size: 12px; margin: 0;">${BAKERY_NAME} · Reply to this email with any questions.</p>
 </body>
 </html>
 `
@@ -134,7 +137,7 @@ export async function POST(request: Request) {
   <p style="margin: 0 0 20px 0; font-size: 13px; color: #888;">${is_editing ? 'Updated one-time order' : 'New one-time order'} · ${week_range}</p>
   ${orderRowsHtml}
   <p style="margin: 24px 0 0 0;">
-    <a href="https://jinxbread.vercel.app/admin"
+    <a href="${APP_URL}/admin"
        style="display: inline-block; background: #1a1a1a; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px;">
       View in admin
     </a>
@@ -146,7 +149,7 @@ export async function POST(request: Request) {
   let emailFailed = false
   try {
     await resend.emails.send({
-      from: 'Jinx Bread <orders@jinxbread.com>',
+      from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
       to: customer.email,
       subject,
       html: customerHtml,
@@ -159,7 +162,7 @@ export async function POST(request: Request) {
 
   try {
     await resend.emails.send({
-      from: 'Jinx Bread <orders@jinxbread.com>',
+      from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
       to: BAKERY_ADMIN_EMAIL,
       subject: bakerySubject,
       html: bakeryHtml,

@@ -13,6 +13,8 @@ const supabase = createClient(
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
+const BAKERY_NAME = process.env.BAKERY_NAME!
+const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
 
 function isWithin24hWindow(createdAt: string, daysAgo: number): boolean {
   const created = new Date(createdAt).getTime()
@@ -85,10 +87,10 @@ export async function GET(request: Request) {
     }
 
     const isFirst = reminderNumber === 1
-    const subject = 'Reminder: Sign in to Jinx Bread to Place Your Orders'
+    const subject = `Reminder: Sign in to ${BAKERY_NAME} to Place Your Orders`
     const intro = isFirst
-      ? `Just a quick reminder that you've been invited to place orders through Jinx Bread online.`
-      : `This is your final reminder — your Jinx Bread account is ready and waiting.`
+      ? `Just a quick reminder that you've been invited to place orders through ${BAKERY_NAME} online.`
+      : `This is your final reminder — your ${BAKERY_NAME} account is ready and waiting.`
 
     const html = `
 <!DOCTYPE html>
@@ -96,10 +98,10 @@ export async function GET(request: Request) {
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
   <p style="font-size: 16px; margin: 0 0 16px 0;">Hi ${customerName},</p>
   <p style="font-size: 15px; margin: 0 0 16px 0;">${intro}</p>
-  <p style="font-size: 15px; margin: 0 0 24px 0;">Place and track your Jinx Bread orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
-  <a href="${process.env.NEXT_PUBLIC_APP_URL}/welcome"
+  <p style="font-size: 15px; margin: 0 0 24px 0;">Place and track your ${BAKERY_NAME} orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
+  <a href="${APP_URL}/welcome"
      style="display: inline-block; background: #1a1a1a; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px;">
-    Sign in to Jinx Bread
+    Sign in to ${BAKERY_NAME}
   </a>
   <p style="font-size: 13px; color: #888; margin: 32px 0 0 0;">If you have any questions, just reply to this email.</p>
 </body>
@@ -108,7 +110,7 @@ export async function GET(request: Request) {
 
     try {
       await resend.emails.send({
-        from: 'Jinx Bread <orders@jinxbread.com>',
+        from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
         to: email,
         subject,
         html,
@@ -120,7 +122,7 @@ export async function GET(request: Request) {
       errors.push({ email, error: err.message })
       try {
         await resend.emails.send({
-          from: 'Jinx Bread <orders@jinxbread.com>',
+          from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
           to: BAKERY_ADMIN_EMAIL,
           subject: 'Email Send Failure: resend-invite-reminder',
           html: `<p>Failed to send <strong>invite reminder ${reminderNumber}</strong> to <strong>${email}</strong>.</p><p>Error: ${err.message}</p>`,
