@@ -40,9 +40,7 @@ function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string } {
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
-  console.log('Auth header present:', !!authHeader, 'length:', authHeader?.length)
-  console.log('CRON_SECRET set:', !!process.env.CRON_SECRET)
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -75,8 +73,7 @@ export async function GET(request: Request) {
   const localDayJs = nowLocal.getDay()
   const localHour = nowLocal.getHours()
 
-  console.log('Timing check result:', { localDayJs, localHour, targetDayJs, targetHour, willProceed: localDayJs === targetDayJs && localHour === targetHour })
-  if (localDayJs !== targetDayJs || localHour !== targetHour) {
+if (localDayJs !== targetDayJs || localHour !== targetHour) {
     // Not the right hour — exit silently (fires 23/24 times per week)
     return NextResponse.json({ skipped: true, reason: 'not target hour', localDayJs, localHour, targetDayJs, targetHour })
   }
