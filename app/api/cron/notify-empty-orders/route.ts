@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { toZonedTime } from 'date-fns-tz'
 
-// Runs at 18:15 UTC Sunday = 13:15 Central (CDT, UTC-5)
-// NOTE: adjust to 19:15 UTC during CST (UTC-6) Nov-Mar
+// Runs hourly. Fires business logic only in the hour matching:
+// bakery_settings.cutoff_day + cutoff_time + 15 min, in the tenant's timezone.
+// Requires bakery_settings column: last_empty_orders_sent_at (timestamptz, nullable)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,6 +18,11 @@ const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
 const BAKERY_NAME = process.env.BAKERY_NAME!
 const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
+
+const DAY_NAME_TO_JS: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6,
+}
 
 function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string } {
   const day = fromDate.getUTCDay()
@@ -37,9 +44,57 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const now = new Date()
-  const { weekStart, weekEnd } = getWeekRange(now)
+  // --- Fetch tenant settings ---
+  const { data: settings, error: settingsError } = await supabase
+    .from('bakery_settings')
+    .select('timezone, cutoff_day, cutoff_time, last_empty_orders_sent_at')
+    .single()
 
+  if (settingsError || !settings) {
+    return NextResponse.json({ error: 'Failed to load bakery_settings', detail: settingsError?.message }, { status: 500 })
+  }
+
+  const { timezone, cutoff_day, cutoff_time, last_empty_orders_sent_at } = settings
+
+  // --- Determine target fire moment in tenant timezone ---
+  // cutoff_time is a Postgres time string like "13:00:00"
+  const [cutoffHour, cutoffMin] = cutoff_time.split(':').map(Number)
+  const targetTotalMin = cutoffHour * 60 + cutoffMin + 15
+  const targetHour = Math.floor(targetTotalMin / 60) % 24
+  const targetDayJs = DAY_NAME_TO_JS[cutoff_day]
+
+  if (targetDayJs === undefined) {
+    return NextResponse.json({ error: `Unknown cutoff_day: ${cutoff_day}` }, { status: 500 })
+  }
+
+  // --- Check current time in tenant timezone ---
+  const nowUtc = new Date()
+  const nowLocal = toZonedTime(nowUtc, timezone)
+  const localDayJs = nowLocal.getDay()
+  const localHour = nowLocal.getHours()
+
+  if (localDayJs !== targetDayJs || localHour !== targetHour) {
+    // Not the right hour — exit silently (fires 23/24 times per week)
+    return NextResponse.json({ skipped: true, reason: 'not target hour', localDayJs, localHour, targetDayJs, targetHour })
+  }
+
+  // --- Double-fire safeguard: check if already sent this week ---
+  const { weekStart, weekEnd } = getWeekRange(nowUtc)
+
+  if (last_empty_orders_sent_at) {
+    const lastSent = new Date(last_empty_orders_sent_at)
+    if (lastSent >= new Date(weekStart)) {
+      return NextResponse.json({ skipped: true, reason: 'already sent this week', last_empty_orders_sent_at })
+    }
+  }
+
+  // --- Mark as sent before doing any work (prevents double-send if invoked twice) ---
+  await supabase
+    .from('bakery_settings')
+    .update({ last_empty_orders_sent_at: nowUtc.toISOString() })
+    .eq('timezone', timezone) // use any stable column — there's one row
+
+  // --- Existing business logic: find customers with no orders this week ---
   const { data: customers, error: customersError } = await supabase
     .from('customers')
     .select('id, name')
