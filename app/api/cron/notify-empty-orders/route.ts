@@ -40,6 +40,8 @@ function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string } {
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
+  console.log('Auth header present:', !!authHeader, 'length:', authHeader?.length)
+  console.log('CRON_SECRET set:', !!process.env.CRON_SECRET)
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
