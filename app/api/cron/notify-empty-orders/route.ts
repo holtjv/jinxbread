@@ -75,6 +75,7 @@ export async function GET(request: Request) {
   const localDayJs = nowLocal.getDay()
   const localHour = nowLocal.getHours()
 
+  console.log('Timing check result:', { localDayJs, localHour, targetDayJs, targetHour, willProceed: localDayJs === targetDayJs && localHour === targetHour })
   if (localDayJs !== targetDayJs || localHour !== targetHour) {
     // Not the right hour — exit silently (fires 23/24 times per week)
     return NextResponse.json({ skipped: true, reason: 'not target hour', localDayJs, localHour, targetDayJs, targetHour })
