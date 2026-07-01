@@ -202,13 +202,11 @@ export default function ParPage() {
     setHasSavedOnce(true)
     setTimeout(() => setSaved(false), 4000)
 
-    if (!isAdmin) {
-      fetch('/api/notify-admin-par', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customer_id: selectedCustomerId }),
-      }).catch(err => console.error('Par notification error:', err))
-    }
+    fetch('/api/notify-admin-par', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customer_id: selectedCustomerId, is_admin: isAdmin }),
+    }).catch(err => console.error('Par notification error:', err))
   }
 
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>
