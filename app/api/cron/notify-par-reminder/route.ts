@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { toZonedTime } from 'date-fns-tz'
 
-// Runs at 14:00 UTC Friday = 9:00 Central (CDT, UTC-5)
-// NOTE: adjust to 15:00 UTC during CST (UTC-6) Nov-Mar
+// Runs hourly. Fires business logic only in the hour matching:
+// (cutoff_day - par_reminder_day_offset) at par_reminder_hour, in the tenant's timezone.
+// e.g. Sunday cutoff, day_offset=2, hour=9 → fires Friday at 9:00 AM local.
+// Requires bakery_settings column: last_par_reminder_sent_at (timestamptz, nullable)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,35 +20,31 @@ const BAKERY_NAME = process.env.BAKERY_NAME!
 const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
-function getUpcomingSunday(): Date {
-  const today = new Date()
-  const day = today.getDay()
-  const daysUntilSunday = day === 0 ? 7 : 7 - day
-  const sunday = new Date(today)
-  sunday.setDate(today.getDate() + daysUntilSunday)
-  return sunday
+const DAY_NAME_TO_JS: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6,
 }
 
-function getUpcomingTuesday(): Date {
-  const sunday = getUpcomingSunday()
-  const tuesday = new Date(sunday)
-  tuesday.setDate(sunday.getDate() + 2)
-  return tuesday
+function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string } {
+  const day = fromDate.getUTCDay()
+  let tueDiff = 2 - day
+  if (tueDiff <= 0) tueDiff += 7
+  const tue = new Date(fromDate)
+  tue.setUTCDate(fromDate.getUTCDate() + tueDiff)
+  const mon = new Date(tue)
+  mon.setUTCDate(tue.getUTCDate() + 6)
+  return {
+    weekStart: tue.toISOString().split('T')[0],
+    weekEnd: mon.toISOString().split('T')[0],
+  }
 }
 
-function getUpcomingMonday(): Date {
-  const tuesday = getUpcomingTuesday()
-  const monday = new Date(tuesday)
-  monday.setDate(tuesday.getDate() + 6)
-  return monday
+function fmtShort(dateStr: string): string {
+  return new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-function fmtDate(d: Date): string {
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-}
-
-function fmtShort(d: Date): string {
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+function fmtLong(dateStr: string): string {
+  return new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 }
 
 export async function GET(request: Request) {
@@ -54,7 +53,55 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Send to ALL active customers with emails, not just par customers
+  // --- Fetch tenant settings ---
+  const { data: settings, error: settingsError } = await supabase
+    .from('bakery_settings')
+    .select('timezone, cutoff_day, cutoff_time, par_reminder_day_offset, par_reminder_hour, last_par_reminder_sent_at')
+    .single()
+
+  if (settingsError || !settings) {
+    return NextResponse.json({ error: 'Failed to load bakery_settings', detail: settingsError?.message }, { status: 500 })
+  }
+
+  const { timezone, cutoff_day, cutoff_time, par_reminder_day_offset, par_reminder_hour, last_par_reminder_sent_at } = settings
+
+  // --- Determine target fire moment in tenant timezone ---
+  // Fire par_reminder_day_offset days before cutoff_day, at par_reminder_hour local
+  const cutoffDayJs = DAY_NAME_TO_JS[cutoff_day]
+  if (cutoffDayJs === undefined) {
+    return NextResponse.json({ error: `Unknown cutoff_day: ${cutoff_day}` }, { status: 500 })
+  }
+
+  const targetDayJs = ((cutoffDayJs - par_reminder_day_offset) % 7 + 7) % 7
+  const targetHour = par_reminder_hour
+
+  // --- Check current time in tenant timezone ---
+  const nowUtc = new Date()
+  const nowLocal = toZonedTime(nowUtc, timezone)
+  const localDayJs = nowLocal.getDay()
+  const localHour = nowLocal.getHours()
+
+  if (localDayJs !== targetDayJs || localHour !== targetHour) {
+    return NextResponse.json({ skipped: true, reason: 'not target hour', localDayJs, localHour, targetDayJs, targetHour })
+  }
+
+  // --- Double-fire safeguard: check if already sent this week ---
+  const { weekStart, weekEnd } = getWeekRange(nowUtc)
+
+  if (last_par_reminder_sent_at) {
+    const lastSent = new Date(last_par_reminder_sent_at)
+    if (lastSent >= new Date(weekStart)) {
+      return NextResponse.json({ skipped: true, reason: 'already sent this week', last_par_reminder_sent_at })
+    }
+  }
+
+  // --- Mark as sent before doing any work ---
+  await supabase
+    .from('bakery_settings')
+    .update({ last_par_reminder_sent_at: nowUtc.toISOString() })
+    .eq('timezone', timezone)
+
+  // --- Fetch customers opted into friday reminders ---
   const { data: customers, error: customersError } = await supabase
     .from('customers')
     .select('id, name, email, contact_name, notif_reminder_friday')
@@ -70,9 +117,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: 'No customers to notify', notified: 0 })
   }
 
-  const sunday = getUpcomingSunday()
-  const tuesday = getUpcomingTuesday()
-  const monday = getUpcomingMonday()
+  // Cutoff is the Sunday (cutoff_day) before the delivery week's Tuesday (weekStart)
+  const cutoffDateStr = (() => {
+    const tue = new Date(weekStart + 'T12:00:00Z')
+    tue.setUTCDate(tue.getUTCDate() - 2)
+    return tue.toISOString().split('T')[0]
+  })()
+
+  const weekRange = `${fmtShort(weekStart)}–${fmtShort(weekEnd)}`
+  const cutoff = fmtLong(cutoffDateStr)
   const parUrl = `${APP_URL}/par`
   const orderUrl = `${APP_URL}/order`
 
@@ -81,8 +134,6 @@ export async function GET(request: Request) {
 
   for (const customer of customers) {
     const firstName = customer.contact_name?.split(' ')[0] || customer.name
-    const weekRange = `${fmtShort(tuesday)}–${fmtShort(monday)}`
-    const cutoff = fmtDate(sunday)
 
     try {
       await resend.emails.send({

@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { toZonedTime } from 'date-fns-tz'
 
-// Runs at 15:00 UTC Sunday = 10:00 Central (CDT, UTC-5)
-// NOTE: adjust to 16:00 UTC during CST (UTC-6) Nov-Mar
+// Runs hourly. Fires business logic only in the hour matching:
+// bakery_settings.cutoff_day at (cutoff_time - reminder_offset_hours), in the tenant's timezone.
+// e.g. Sunday cutoff at noon, reminder_offset_hours=2 → fires Sunday at 10:00 AM local.
+// Requires bakery_settings column: last_sunday_reminder_sent_at (timestamptz, nullable)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,25 +20,27 @@ const BAKERY_NAME = process.env.BAKERY_NAME!
 const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
-function getUpcomingTuesday(): Date {
-  const today = new Date()
-  const day = today.getDay()
+const DAY_NAME_TO_JS: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6,
+}
+
+function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string } {
+  const day = fromDate.getUTCDay()
   let tueDiff = 2 - day
   if (tueDiff <= 0) tueDiff += 7
-  const tue = new Date(today)
-  tue.setDate(today.getDate() + tueDiff)
-  return tue
+  const tue = new Date(fromDate)
+  tue.setUTCDate(fromDate.getUTCDate() + tueDiff)
+  const mon = new Date(tue)
+  mon.setUTCDate(tue.getUTCDate() + 6)
+  return {
+    weekStart: tue.toISOString().split('T')[0],
+    weekEnd: mon.toISOString().split('T')[0],
+  }
 }
 
-function getUpcomingMonday(): Date {
-  const tuesday = getUpcomingTuesday()
-  const monday = new Date(tuesday)
-  monday.setDate(tuesday.getDate() + 6)
-  return monday
-}
-
-function fmtShort(d: Date): string {
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+function fmtShort(dateStr: string): string {
+  return new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 export async function GET(request: Request) {
@@ -44,6 +49,56 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // --- Fetch tenant settings ---
+  const { data: settings, error: settingsError } = await supabase
+    .from('bakery_settings')
+    .select('timezone, cutoff_day, cutoff_time, reminder_offset_hours, last_sunday_reminder_sent_at')
+    .single()
+
+  if (settingsError || !settings) {
+    return NextResponse.json({ error: 'Failed to load bakery_settings', detail: settingsError?.message }, { status: 500 })
+  }
+
+  const { timezone, cutoff_day, cutoff_time, reminder_offset_hours, last_sunday_reminder_sent_at } = settings
+
+  // --- Determine target fire moment in tenant timezone ---
+  // Fire reminder_offset_hours before cutoff, on cutoff_day
+  const [cutoffHour, cutoffMin] = cutoff_time.split(':').map(Number)
+  const targetTotalMin = cutoffHour * 60 + cutoffMin - reminder_offset_hours * 60
+  const targetHour = ((Math.floor(targetTotalMin / 60) % 24) + 24) % 24
+  const targetDayJs = DAY_NAME_TO_JS[cutoff_day]
+
+  if (targetDayJs === undefined) {
+    return NextResponse.json({ error: `Unknown cutoff_day: ${cutoff_day}` }, { status: 500 })
+  }
+
+  // --- Check current time in tenant timezone ---
+  const nowUtc = new Date()
+  const nowLocal = toZonedTime(nowUtc, timezone)
+  const localDayJs = nowLocal.getDay()
+  const localHour = nowLocal.getHours()
+
+  if (localDayJs !== targetDayJs || localHour !== targetHour) {
+    return NextResponse.json({ skipped: true, reason: 'not target hour', localDayJs, localHour, targetDayJs, targetHour })
+  }
+
+  // --- Double-fire safeguard: check if already sent this week ---
+  const { weekStart, weekEnd } = getWeekRange(nowUtc)
+
+  if (last_sunday_reminder_sent_at) {
+    const lastSent = new Date(last_sunday_reminder_sent_at)
+    if (lastSent >= new Date(weekStart)) {
+      return NextResponse.json({ skipped: true, reason: 'already sent this week', last_sunday_reminder_sent_at })
+    }
+  }
+
+  // --- Mark as sent before doing any work ---
+  await supabase
+    .from('bakery_settings')
+    .update({ last_sunday_reminder_sent_at: nowUtc.toISOString() })
+    .eq('timezone', timezone)
+
+  // --- Fetch customers opted into sunday reminders ---
   const { data: customers, error } = await supabase
     .from('customers')
     .select('id, name, email, contact_name, notif_reminder_sunday')
@@ -55,9 +110,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  const tuesday = getUpcomingTuesday()
-  const monday = getUpcomingMonday()
-  const weekRange = `${fmtShort(tuesday)}–${fmtShort(monday)}`
+  const weekRange = `${fmtShort(weekStart)}–${fmtShort(weekEnd)}`
   const orderUrl = `${APP_URL}/order`
   const parUrl = `${APP_URL}/par`
 

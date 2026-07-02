@@ -2,15 +2,15 @@
   "crons": [
     {
       "path": "/api/cron/submit-par-orders",
-      "schedule": "0 18 * * 0"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/notify-par-reminder",
-      "schedule": "0 14 * * 5"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/sunday-reminder",
-      "schedule": "0 15 * * 0"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/notify-empty-orders",

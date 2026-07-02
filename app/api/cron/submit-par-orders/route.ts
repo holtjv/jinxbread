@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { toZonedTime } from 'date-fns-tz'
 
-// Runs at 18:00 UTC Sunday = 13:00 Central (CDT, UTC-5)
-// NOTE: adjust to 19:00 UTC during CST (UTC-6) Nov-Mar
+// Runs hourly. Fires business logic only in the hour matching:
+// bakery_settings.cutoff_day + cutoff_time + 60 min, in the tenant's timezone.
+// 60-minute offset matches the freeze window in app/api/par/save/route.ts —
+// orders are locked noon–1pm, cron fires at 1pm when the lock releases.
+// Requires bakery_settings column: last_par_orders_sent_at (timestamptz, nullable)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,6 +20,11 @@ const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
 const BAKERY_NAME = process.env.BAKERY_NAME!
 const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
+
+const DAY_NAME_TO_JS: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6,
+}
 
 const DAY_OF_WEEK_TO_OFFSET: Record<string, number> = {
   monday:    8,
@@ -35,7 +44,6 @@ function getDeliveryDate(dayOfWeek: string, fromDate: Date): string {
 }
 
 function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string; weekRange: string; cutoffString: string } {
-  // Find the next Tuesday from fromDate
   const day = fromDate.getUTCDay()
   let tueDiff = 2 - day
   if (tueDiff <= 0) tueDiff += 7
@@ -45,7 +53,6 @@ function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string; wee
   const mon = new Date(tue)
   mon.setUTCDate(tue.getUTCDate() + 6)
 
-  // Cutoff is the Sunday before that Tuesday
   const cutoffSun = new Date(tue)
   cutoffSun.setUTCDate(tue.getUTCDate() - 2)
 
@@ -155,9 +162,56 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const now = new Date()
-  const { weekStart, weekEnd, weekRange, cutoffString } = getWeekRange(now)
+  // --- Fetch tenant settings ---
+  const { data: settings, error: settingsError } = await supabase
+    .from('bakery_settings')
+    .select('timezone, cutoff_day, cutoff_time, last_par_orders_sent_at')
+    .single()
 
+  if (settingsError || !settings) {
+    return NextResponse.json({ error: 'Failed to load bakery_settings', detail: settingsError?.message }, { status: 500 })
+  }
+
+  const { timezone, cutoff_day, cutoff_time, last_par_orders_sent_at } = settings
+
+  // --- Determine target fire moment in tenant timezone ---
+  // Fire 60 minutes after cutoff — matches the freeze window in app/api/par/save/route.ts
+  const [cutoffHour, cutoffMin] = cutoff_time.split(':').map(Number)
+  const targetTotalMin = cutoffHour * 60 + cutoffMin + 60
+  const targetHour = Math.floor(targetTotalMin / 60) % 24
+  const targetDayJs = DAY_NAME_TO_JS[cutoff_day]
+
+  if (targetDayJs === undefined) {
+    return NextResponse.json({ error: `Unknown cutoff_day: ${cutoff_day}` }, { status: 500 })
+  }
+
+  // --- Check current time in tenant timezone ---
+  const nowUtc = new Date()
+  const nowLocal = toZonedTime(nowUtc, timezone)
+  const localDayJs = nowLocal.getDay()
+  const localHour = nowLocal.getHours()
+
+  if (localDayJs !== targetDayJs || localHour !== targetHour) {
+    return NextResponse.json({ skipped: true, reason: 'not target hour', localDayJs, localHour, targetDayJs, targetHour })
+  }
+
+  // --- Double-fire safeguard: check if already ran this week ---
+  const { weekStart, weekEnd, weekRange, cutoffString } = getWeekRange(nowUtc)
+
+  if (last_par_orders_sent_at) {
+    const lastSent = new Date(last_par_orders_sent_at)
+    if (lastSent >= new Date(weekStart)) {
+      return NextResponse.json({ skipped: true, reason: 'already ran this week', last_par_orders_sent_at })
+    }
+  }
+
+  // --- Mark as ran before doing any work (prevents double-send if invoked twice) ---
+  await supabase
+    .from('bakery_settings')
+    .update({ last_par_orders_sent_at: nowUtc.toISOString() })
+    .eq('timezone', timezone)
+
+  // --- Fetch active delivery windows ---
   const { data: windows, error: windowsError } = await supabase
     .from('delivery_windows')
     .select('*')
@@ -167,6 +221,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: windowsError.message }, { status: 500 })
   }
 
+  // --- Fetch all customers with standing orders ---
   const { data: parCustomers, error: parError } = await supabase
     .from('customer_pars')
     .select('customer_id')
@@ -200,7 +255,7 @@ export async function GET(request: Request) {
     let customerCreated = 0
 
     for (const window of windows || []) {
-      const deliveryDate = getDeliveryDate(window.day_of_week, now)
+      const deliveryDate = getDeliveryDate(window.day_of_week, nowUtc)
 
       const { data: existing } = await supabase
         .from('orders')
@@ -237,7 +292,7 @@ export async function GET(request: Request) {
           delivery_date: deliveryDate,
           status: 'pending',
           is_par: true,
-          submitted_at: now.toISOString(),
+          submitted_at: nowUtc.toISOString(),
         })
         .select('id')
         .single()
@@ -270,7 +325,6 @@ export async function GET(request: Request) {
       customerCreated++
     }
 
-    // Send one confirmation email per customer if any orders were created
     if (customerCreated > 0 && !emailedCustomers.has(customer.id)) {
       try {
         await sendParConfirmation(customer, weekStart, weekEnd, weekRange, cutoffString)

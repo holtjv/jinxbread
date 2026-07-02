@@ -1,6 +1,44 @@
 'use client'
 import { useState, useEffect, Fragment } from 'react'
+import { toZonedTime } from 'date-fns-tz'
 import { createClient } from '../../lib/supabase'
+
+const DAY_NAME_TO_JS: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6,
+}
+
+// Must match the value in app/api/par/save/route.ts
+const FREEZE_WINDOW_MINUTES = 60
+
+function computeFreeze(settings: { timezone: string; cutoff_day: string; cutoff_time: string }): { frozen: boolean; message: string | null } {
+  const { timezone, cutoff_day, cutoff_time } = settings
+  const targetDayJs = DAY_NAME_TO_JS[cutoff_day]
+  if (targetDayJs === undefined) return { frozen: false, message: null }
+
+  const [cutoffHour, cutoffMin] = cutoff_time.split(':').map(Number)
+  const nowLocal = toZonedTime(new Date(), timezone)
+
+  if (nowLocal.getDay() !== targetDayJs) return { frozen: false, message: null }
+
+  const cutoffTotalMin = cutoffHour * 60 + cutoffMin
+  const nowTotalMin = nowLocal.getHours() * 60 + nowLocal.getMinutes()
+  const freezeEndMin = cutoffTotalMin + FREEZE_WINDOW_MINUTES
+
+  if (nowTotalMin >= cutoffTotalMin && nowTotalMin < freezeEndMin) {
+    const h24 = Math.floor(freezeEndMin / 60) % 24
+    const m = freezeEndMin % 60
+    const period = h24 >= 12 ? 'PM' : 'AM'
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+    const timeStr = `${h12}:${String(m).padStart(2, '0')} ${period}`
+    return {
+      frozen: true,
+      message: `Standing order changes are locked until ${timeStr} while this week's orders are being submitted.`,
+    }
+  }
+
+  return { frozen: false, message: null }
+}
 
 export default function ParPage() {
   const [products, setProducts] = useState<any[]>([])
@@ -19,6 +57,8 @@ export default function ParPage() {
   const [saved, setSaved] = useState(false)
   const [hasSavedOnce, setHasSavedOnce] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [frozen, setFrozen] = useState(false)
+  const [freezeMessage, setFreezeMessage] = useState<string | null>(null)
   const supabase = createClient()
 
   async function loadFavorites(targetId: string) {
@@ -79,10 +119,23 @@ export default function ParPage() {
       const customer = cu.customers as any
       const cid = cu.customer_id
       setCustomerId(cid)
-      const [prodsRes, windowsRes] = await Promise.all([
+
+      const [prodsRes, windowsRes, settingsRes] = await Promise.all([
         supabase.from('products').select('*').eq('active', true).order('sort_order', { nullsFirst: false }).order('name'),
         supabase.from('delivery_windows').select('*').eq('active', true).order('sort_order'),
+        supabase.from('bakery_settings').select('timezone, cutoff_day, cutoff_time').single(),
       ])
+
+      // Proactive freeze check — happens before the customer can interact with the page.
+      // Admin bypass: don't freeze even if inside the window.
+      if (settingsRes.data && customer?.is_admin !== true) {
+        const { frozen: isFrozen, message } = computeFreeze(settingsRes.data)
+        if (isFrozen) {
+          setFrozen(true)
+          setFreezeMessage(message)
+        }
+      }
+
       const sortedWindows = (windowsRes.data || []).sort((a: any, b: any) => a.sort_order - b.sort_order)
       const prods = prodsRes.data || []
       setProducts(prods)
@@ -190,12 +243,26 @@ export default function ParPage() {
         if (par && par.quantity > 0) rows.push({ customer_id: selectedCustomerId, delivery_window_id: w.id, product_id: p.id, quantity: par.quantity, sliced: par.sliced || false })
       })
     })
-    const { error: deleteError } = await supabase.from('customer_pars').delete().eq('customer_id', selectedCustomerId)
-    if (deleteError) { setError('Error saving: ' + deleteError.message); setSaving(false); return }
-    if (rows.length > 0) {
-      const { error: insertError } = await supabase.from('customer_pars').insert(rows)
-      if (insertError) { setError('Error saving: ' + insertError.message); setSaving(false); return }
+
+    const res = await fetch('/api/par/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customer_id: selectedCustomerId, is_admin: isAdmin, rows }),
+    })
+    const data = await res.json()
+
+    if (!res.ok) {
+      if (res.status === 423) {
+        // Server-confirmed freeze — sync client state so inputs lock immediately
+        setFrozen(true)
+        setFreezeMessage(data.message || 'Standing order changes are locked while this week\'s orders are being submitted.')
+      } else {
+        setError('Error saving: ' + (data.error || 'Unknown error'))
+      }
+      setSaving(false)
+      return
     }
+
     setSaving(false)
     setSaved(true)
     setSavedPars(pars)
@@ -225,6 +292,11 @@ export default function ParPage() {
           <select value={selectedCustomerId || ''} onChange={e => handleCustomerChange(e.target.value)} style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid #f59e0b', background: '#fff', fontFamily: 'var(--font)', color: 'var(--gray-900)', cursor: 'pointer' }}>
             {allCustomers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
+        </div>
+      )}
+      {frozen && (
+        <div style={{ background: '#fef2f2', border: '1px solid #dc2626', borderRadius: 8, padding: '12px 16px', marginBottom: 24, fontSize: 13, color: '#991b1b', fontWeight: 600 }}>
+          {freezeMessage}
         </div>
       )}
       <p className="page-subtitle">Repeats every week until you change it. Set a quantity to 0 to remove a product.</p>
@@ -322,10 +394,14 @@ export default function ParPage() {
                             min="0"
                             value={par?.quantity || ''}
                             placeholder="0"
+                            disabled={frozen}
                             onFocus={e => e.target.select()}
                             onChange={e => updatePar(w.id, p.id, 'quantity', e.target.value)}
                             className={`qty-input${par?.quantity > 0 ? ' has-value' : ''}`}
-                            style={underMin ? { borderColor: '#dc2626' } : {}}
+                            style={{
+                              ...(underMin ? { borderColor: '#dc2626' } : {}),
+                              ...(frozen ? { background: 'var(--gray-100)', cursor: 'not-allowed' } : {}),
+                            }}
                           />
                         </td>
                       )
@@ -345,7 +421,7 @@ export default function ParPage() {
         </table>
       </div>
       <div style={{ marginTop: 32, marginBottom: 60, display: 'flex', alignItems: 'center', gap: 16 }}>
-        <button onClick={handleSave} disabled={saving} className="btn btn-primary">
+        <button onClick={handleSave} disabled={saving || frozen} className="btn btn-primary">
           {saving ? 'Saving...' : hasSavedOnce ? 'Update standing order' : 'Save standing order'}
         </button>
         {saved && <span className="alert alert-success" style={{ margin: 0, padding: '6px 12px' }}>✓ Standing order updated — applies to all future weeks.</span>}
