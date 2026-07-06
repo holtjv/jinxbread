@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
 
-type Tab = 'thisweek' | 'orders' | 'pricing' | 'customers' | 'products' | 'users'
+type Tab = 'thisweek' | 'orders' | 'pricing' | 'customers' | 'products' | 'users' | 'settings'
 type OrderStatus = 'pending' | 'confirmed' | 'in_production' | 'fulfilled' | 'cancelled'
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
@@ -76,6 +76,13 @@ export default function AdminPage() {
   const [userList, setUserList] = useState<{ email: string; customer_id: string; customer_name: string; created_at: string; status: string }[]>([])
   const [userListLoading, setUserListLoading] = useState(false)
   const [userRowState, setUserRowState] = useState<Record<string, { confirmRemove?: boolean; resending?: boolean; removing?: boolean; message?: string }>>({})
+
+  const [settingsId, setSettingsId] = useState<string | null>(null)
+  const [settingsForm, setSettingsForm] = useState<any>(null)
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [settingsSaved, setSettingsSaved] = useState(false)
+  const [settingsError, setSettingsError] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -378,6 +385,48 @@ export default function AdminPage() {
     setTimeout(() => setProductSuccess(null), 4000)
   }
 
+  async function loadSettings() {
+    setSettingsLoading(true)
+    const { data, error } = await supabase
+      .from('bakery_settings')
+      .select('id, bakery_name, timezone, cutoff_day, cutoff_time, reminder_offset_hours, par_reminder_day_offset, par_reminder_hour')
+      .single()
+    if (data) {
+      setSettingsId(data.id)
+      setSettingsForm({
+        bakery_name: data.bakery_name,
+        timezone: data.timezone,
+        cutoff_day: data.cutoff_day,
+        cutoff_time: (data.cutoff_time as string)?.slice(0, 5) ?? '',
+        reminder_offset_hours: data.reminder_offset_hours,
+        par_reminder_day_offset: data.par_reminder_day_offset,
+        par_reminder_hour: data.par_reminder_hour,
+      })
+    }
+    if (error) setSettingsError('Failed to load settings')
+    setSettingsLoading(false)
+  }
+
+  async function handleSaveSettings() {
+    if (!settingsForm) return
+    setSettingsSaving(true)
+    setSettingsSaved(false)
+    setSettingsError(null)
+    const res = await fetch('/api/admin/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: settingsId, ...settingsForm }),
+    })
+    const data = await res.json()
+    setSettingsSaving(false)
+    if (!res.ok) {
+      setSettingsError(data.error || 'Failed to save settings')
+    } else {
+      setSettingsSaved(true)
+      setTimeout(() => setSettingsSaved(false), 4000)
+    }
+  }
+
   async function loadUsers() {
     setUserListLoading(true)
     const res = await fetch('/api/admin/users')
@@ -387,6 +436,7 @@ export default function AdminPage() {
   }
 
   useEffect(() => { if (tab === 'users') loadUsers() }, [tab])
+  useEffect(() => { if (tab === 'settings') loadSettings() }, [tab])
 
   async function handleResendInvite(email: string, customer_id: string) {
     setUserRowState(prev => ({ ...prev, [email]: { ...prev[email], resending: true, message: undefined } }))
@@ -441,7 +491,7 @@ export default function AdminPage() {
 
   const tabLabels: Record<Tab, string> = {
     thisweek: 'This Week', orders: 'Orders', customers: 'Customers',
-    products: 'Products', users: 'Users', pricing: 'Customer Pricing',
+    products: 'Products', users: 'Users', pricing: 'Customer Pricing', settings: 'Settings',
   }
 
   const formFieldStyle = {
@@ -577,7 +627,7 @@ export default function AdminPage() {
       <h1>Admin</h1>
 
       <div style={{ display: 'flex', gap: 4, marginBottom: 32, borderBottom: '2px solid var(--gray-200)', flexWrap: 'wrap' as const }}>
-        {(['thisweek', 'orders', 'customers', 'products', 'users', 'pricing'] as Tab[]).map(t => (
+        {(['thisweek', 'orders', 'customers', 'products', 'users', 'pricing', 'settings'] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
             padding: '10px 20px', background: 'none', border: 'none',
             borderBottom: tab === t ? '2px solid var(--accent)' : '2px solid transparent',
@@ -838,6 +888,123 @@ export default function AdminPage() {
                 })}
               </tbody>
             </table>
+          )}
+        </div>
+      )}
+
+      {tab === 'settings' && (
+        <div style={{ maxWidth: 560 }}>
+          <p className="page-subtitle">Bakery-wide configuration. Changes take effect immediately for all cron jobs and customer-facing copy.</p>
+          {settingsLoading ? (
+            <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>Loading...</p>
+          ) : !settingsForm ? (
+            <p style={{ color: 'red', fontSize: 14 }}>{settingsError || 'Failed to load settings.'}</p>
+          ) : (
+            <>
+              <div style={formRowStyle}>
+                <label className="form-label">Bakery name</label>
+                <input
+                  style={formFieldStyle}
+                  value={settingsForm.bakery_name}
+                  onChange={e => setSettingsForm((p: any) => ({ ...p, bakery_name: e.target.value }))}
+                />
+              </div>
+
+              <div style={formRowStyle}>
+                <label className="form-label">Timezone</label>
+                <select
+                  style={formFieldStyle}
+                  value={settingsForm.timezone}
+                  onChange={e => setSettingsForm((p: any) => ({ ...p, timezone: e.target.value }))}
+                >
+                  {Intl.supportedValuesOf('timeZone').map((tz: string) => (
+                    <option key={tz} value={tz}>{tz}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px' }}>
+                <div style={formRowStyle}>
+                  <label className="form-label">Order cutoff day</label>
+                  <select
+                    style={formFieldStyle}
+                    value={settingsForm.cutoff_day}
+                    onChange={e => setSettingsForm((p: any) => ({ ...p, cutoff_day: e.target.value }))}
+                  >
+                    {DAYS.map(d => (
+                      <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={formRowStyle}>
+                  <label className="form-label">Cutoff time</label>
+                  <input
+                    type="time"
+                    min="07:00"
+                    max="19:00"
+                    style={formFieldStyle}
+                    value={settingsForm.cutoff_time}
+                    onChange={e => setSettingsForm((p: any) => ({ ...p, cutoff_time: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div style={formRowStyle}>
+                <label className="form-label">Sunday reminder — send this many hours before cutoff</label>
+                <select
+                  style={formFieldStyle}
+                  value={settingsForm.reminder_offset_hours}
+                  onChange={e => setSettingsForm((p: any) => ({ ...p, reminder_offset_hours: parseInt(e.target.value) }))}
+                >
+                  {[1, 2, 3, 4, 5, 6].map(h => (
+                    <option key={h} value={h}>{h} hour{h !== 1 ? 's' : ''} before cutoff</option>
+                  ))}
+                </select>
+              </div>
+
+              <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: 28, marginBottom: 4 }}>PAR reminder</h2>
+              <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 0, marginBottom: 16 }}>
+                Sent to customers who have opted in to the standing-order reminder email.
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px' }}>
+                <div style={formRowStyle}>
+                  <label className="form-label">Days before cutoff</label>
+                  <select
+                    style={formFieldStyle}
+                    value={settingsForm.par_reminder_day_offset}
+                    onChange={e => setSettingsForm((p: any) => ({ ...p, par_reminder_day_offset: parseInt(e.target.value) }))}
+                  >
+                    {[1, 2, 3, 4, 5, 6].map(d => (
+                      <option key={d} value={d}>{d} day{d !== 1 ? 's' : ''} before cutoff</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={formRowStyle}>
+                  <label className="form-label">Send at hour</label>
+                  <select
+                    style={formFieldStyle}
+                    value={settingsForm.par_reminder_hour}
+                    onChange={e => setSettingsForm((p: any) => ({ ...p, par_reminder_hour: parseInt(e.target.value) }))}
+                  >
+                    {Array.from({ length: 13 }, (_, i) => i + 7).map(h => {
+                      const label = h === 12 ? '12:00 PM' : h < 12 ? `${h}:00 AM` : `${h - 12}:00 PM`
+                      return <option key={h} value={h}>{label}</option>
+                    })}
+                  </select>
+                </div>
+              </div>
+
+              {settingsError && <p style={{ color: 'red', marginBottom: 12, fontSize: 14 }}>{settingsError}</p>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8 }}>
+                <button onClick={handleSaveSettings} disabled={settingsSaving} className="btn btn-primary">
+                  {settingsSaving ? 'Saving...' : 'Save settings'}
+                </button>
+                {settingsSaved && (
+                  <span className="alert alert-success" style={{ margin: 0, padding: '6px 12px' }}>✓ Settings saved</span>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}
