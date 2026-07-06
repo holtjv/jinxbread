@@ -500,6 +500,14 @@ export default function AdminPage() {
     fontFamily: 'var(--font)', color: 'var(--gray-900)', background: '#fff', marginTop: 4,
   }
   const formRowStyle = { marginBottom: 16 }
+  const settingsLabelStyle = {
+    display: 'block' as const,
+    fontSize: 12, fontWeight: 600,
+    color: 'var(--gray-500)',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.5px',
+    marginBottom: 6,
+  }
 
   function WeekGrid({ offset }: { offset: number }) {
     const { tuesday, monday, sunday } = getWeekBounds(offset)
@@ -893,7 +901,7 @@ export default function AdminPage() {
       )}
 
       {tab === 'settings' && (
-        <div style={{ maxWidth: 560 }}>
+        <div style={{ maxWidth: 540 }}>
           <p className="page-subtitle">Bakery-wide configuration. Changes take effect immediately for all ordering windows and customer-facing copy.</p>
           {settingsLoading ? (
             <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>Loading...</p>
@@ -901,92 +909,52 @@ export default function AdminPage() {
             <p style={{ color: 'red', fontSize: 14 }}>{settingsError || 'Failed to load settings.'}</p>
           ) : (
             <>
-              <div style={formRowStyle}>
-                <label className="form-label">Bakery name</label>
-                <input
-                  style={formFieldStyle}
-                  value={settingsForm.bakery_name}
-                  onChange={e => setSettingsForm((p: any) => ({ ...p, bakery_name: e.target.value }))}
-                />
-              </div>
-
-              <div style={formRowStyle}>
-                <label className="form-label">Timezone</label>
-                <select
-                  style={formFieldStyle}
-                  value={settingsForm.timezone}
-                  onChange={e => setSettingsForm((p: any) => ({ ...p, timezone: e.target.value }))}
-                >
-                  {Intl.supportedValuesOf('timeZone').map((tz: string) => (
-                    <option key={tz} value={tz}>{tz}</option>
-                  ))}
-                </select>
-              </div>
-
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px' }}>
-                <div style={formRowStyle}>
-                  <label className="form-label">Order cutoff day</label>
-                  <select
-                    style={formFieldStyle}
-                    value={settingsForm.cutoff_day}
-                    onChange={e => setSettingsForm((p: any) => ({ ...p, cutoff_day: e.target.value }))}
-                  >
-                    {DAYS.map(d => (
-                      <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
+                <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}>
+                  <label style={settingsLabelStyle}>Bakery name</label>
+                  <input style={formFieldStyle} value={settingsForm.bakery_name} onChange={e => setSettingsForm((p: any) => ({ ...p, bakery_name: e.target.value }))} />
+                </div>
+                <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}>
+                  <label style={settingsLabelStyle}>Timezone</label>
+                  <select style={formFieldStyle} value={settingsForm.timezone} onChange={e => setSettingsForm((p: any) => ({ ...p, timezone: e.target.value }))}>
+                    {Intl.supportedValuesOf('timeZone').map((tz: string) => (
+                      <option key={tz} value={tz}>{tz}</option>
                     ))}
                   </select>
                 </div>
                 <div style={formRowStyle}>
-                  <label className="form-label">Cutoff time</label>
-                  <input
-                    type="time"
-                    min="07:00"
-                    max="19:00"
-                    style={formFieldStyle}
-                    value={settingsForm.cutoff_time}
-                    onChange={e => setSettingsForm((p: any) => ({ ...p, cutoff_time: e.target.value }))}
-                  />
-                </div>
-              </div>
-
-              <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: 28, marginBottom: 4 }}>Reminders</h2>
-              <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 0, marginBottom: 20 }}>
-                Both reminders apply to all customers and all order types.
-              </p>
-
-              <div style={{ ...formRowStyle, marginBottom: 20 }}>
-                <label className="form-label">Reminder 1 — hours before cutoff</label>
-                <select
-                  style={formFieldStyle}
-                  value={settingsForm.reminder_offset_hours}
-                  onChange={e => setSettingsForm((p: any) => ({ ...p, reminder_offset_hours: parseInt(e.target.value) }))}
-                >
-                  {[1, 2, 3, 4, 5, 6].map(h => (
-                    <option key={h} value={h}>{h} hour{h !== 1 ? 's' : ''} before cutoff</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px' }}>
-                <div style={formRowStyle}>
-                  <label className="form-label">Reminder 2 — days before cutoff</label>
-                  <select
-                    style={formFieldStyle}
-                    value={settingsForm.par_reminder_day_offset}
-                    onChange={e => setSettingsForm((p: any) => ({ ...p, par_reminder_day_offset: parseInt(e.target.value) }))}
-                  >
-                    {[1, 2, 3, 4, 5, 6].map(d => (
-                      <option key={d} value={d}>{d} day{d !== 1 ? 's' : ''} before cutoff</option>
-                    ))}
+                  <label style={settingsLabelStyle}>Cutoff day</label>
+                  <select style={formFieldStyle} value={settingsForm.cutoff_day} onChange={e => setSettingsForm((p: any) => ({ ...p, cutoff_day: e.target.value }))}>
+                    {DAYS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
                   </select>
                 </div>
                 <div style={formRowStyle}>
-                  <label className="form-label">Reminder 2 — send at hour</label>
-                  <select
-                    style={formFieldStyle}
-                    value={settingsForm.par_reminder_hour}
-                    onChange={e => setSettingsForm((p: any) => ({ ...p, par_reminder_hour: parseInt(e.target.value) }))}
-                  >
+                  <label style={settingsLabelStyle}>Cutoff time</label>
+                  <input type="time" min="07:00" max="19:00" style={formFieldStyle} value={settingsForm.cutoff_time} onChange={e => setSettingsForm((p: any) => ({ ...p, cutoff_time: e.target.value }))} />
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 4, marginBottom: 16 }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Reminders</p>
+                <p style={{ fontSize: 13, color: 'var(--gray-500)' }}>Both reminders apply to all customers and all order types.</p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px' }}>
+                <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}>
+                  <label style={settingsLabelStyle}>Reminder 1</label>
+                  <select style={formFieldStyle} value={settingsForm.reminder_offset_hours} onChange={e => setSettingsForm((p: any) => ({ ...p, reminder_offset_hours: parseInt(e.target.value) }))}>
+                    {[1, 2, 3, 4, 5, 6].map(h => <option key={h} value={h}>{h} hour{h !== 1 ? 's' : ''} before cutoff</option>)}
+                  </select>
+                </div>
+                <div style={formRowStyle}>
+                  <label style={settingsLabelStyle}>Reminder 2 — day</label>
+                  <select style={formFieldStyle} value={settingsForm.par_reminder_day_offset} onChange={e => setSettingsForm((p: any) => ({ ...p, par_reminder_day_offset: parseInt(e.target.value) }))}>
+                    {[1, 2, 3, 4, 5, 6].map(d => <option key={d} value={d}>{d} day{d !== 1 ? 's' : ''} before cutoff</option>)}
+                  </select>
+                </div>
+                <div style={formRowStyle}>
+                  <label style={settingsLabelStyle}>Reminder 2 — hour</label>
+                  <select style={formFieldStyle} value={settingsForm.par_reminder_hour} onChange={e => setSettingsForm((p: any) => ({ ...p, par_reminder_hour: parseInt(e.target.value) }))}>
                     {Array.from({ length: 13 }, (_, i) => i + 7).map(h => {
                       const label = h === 12 ? '12:00 PM' : h < 12 ? `${h}:00 AM` : `${h - 12}:00 PM`
                       return <option key={h} value={h}>{label}</option>
@@ -996,13 +964,11 @@ export default function AdminPage() {
               </div>
 
               {settingsError && <p style={{ color: 'red', marginBottom: 12, fontSize: 14 }}>{settingsError}</p>}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
+                {settingsSaved && <span className="alert alert-success" style={{ margin: 0, padding: '6px 12px' }}>✓ Settings saved</span>}
                 <button onClick={handleSaveSettings} disabled={settingsSaving} className="btn btn-primary">
                   {settingsSaving ? 'Saving...' : 'Save settings'}
                 </button>
-                {settingsSaved && (
-                  <span className="alert alert-success" style={{ margin: 0, padding: '6px 12px' }}>✓ Settings saved</span>
-                )}
               </div>
             </>
           )}
