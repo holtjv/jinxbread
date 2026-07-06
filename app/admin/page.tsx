@@ -987,7 +987,7 @@ export default function AdminPage() {
             <p style={{ color: 'red', fontSize: 14 }}>{settingsError || 'Failed to load settings.'}</p>
           ) : (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px', alignItems: 'start' }}>
                 <div style={{ ...formRowStyle, gridColumn: '1 / -1' }}>
                   <label style={settingsLabelStyle}>Bakery name</label>
                   <input style={formFieldStyle} value={settingsForm.bakery_name} onChange={e => setSettingsForm((p: any) => ({ ...p, bakery_name: e.target.value }))} />
