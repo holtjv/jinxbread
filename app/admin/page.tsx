@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '../../lib/supabase'
 
 type Tab = 'thisweek' | 'orders' | 'pricing' | 'customers' | 'products' | 'users' | 'settings'
@@ -33,83 +33,6 @@ const STATUS_COLORS: Record<OrderStatus, { background: string; color: string }> 
   cancelled: { background: '#f8d7da', color: '#721c24' },
 }
 
-function CutoffTimeRoller({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const ITEM_H = 36
-  const VISIBLE = 5
-  const PAD = ITEM_H * Math.floor(VISIBLE / 2)
-
-  const options: string[] = []
-  for (let h = 7; h <= 22; h++) {
-    options.push(`${String(h).padStart(2, '0')}:00`)
-    if (h < 22) options.push(`${String(h).padStart(2, '0')}:30`)
-  }
-
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (!scrollRef.current) return
-    const idx = options.indexOf(value)
-    if (idx < 0) return
-    const target = idx * ITEM_H
-    if (Math.abs(scrollRef.current.scrollTop - target) > 2) {
-      scrollRef.current.scrollTop = target
-    }
-  }, [value])
-
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
-
-  function handleScroll() {
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => {
-      if (!scrollRef.current) return
-      const idx = Math.round(scrollRef.current.scrollTop / ITEM_H)
-      const clamped = Math.max(0, Math.min(idx, options.length - 1))
-      scrollRef.current.scrollTop = clamped * ITEM_H
-      onChange(options[clamped])
-    }, 150)
-  }
-
-  return (
-    <div style={{ position: 'relative', height: ITEM_H * VISIBLE, borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden', background: '#fff', marginTop: 4, userSelect: 'none' as const }}>
-      <div style={{ position: 'absolute', top: PAD, left: 0, right: 0, height: ITEM_H, background: 'var(--gray-100)', pointerEvents: 'none', zIndex: 1 }} />
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: PAD, background: 'linear-gradient(to bottom, #fff 30%, transparent)', pointerEvents: 'none', zIndex: 2 }} />
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: PAD, background: 'linear-gradient(to top, #fff 30%, transparent)', pointerEvents: 'none', zIndex: 2 }} />
-      <div
-        ref={scrollRef}
-        className="roller-scroll"
-        onScroll={handleScroll}
-        style={{ height: '100%', overflowY: 'scroll', scrollSnapType: 'y mandatory', paddingTop: PAD, paddingBottom: PAD, scrollbarWidth: 'none' }}
-      >
-        {options.map(opt => {
-          const [hStr, mStr] = opt.split(':')
-          const h = parseInt(hStr)
-          const isSelected = opt === value
-          const label = h === 12 ? `12:${mStr} PM` : h < 12 ? `${h}:${mStr} AM` : `${h - 12}:${mStr} PM`
-          return (
-            <div
-              key={opt}
-              onClick={() => {
-                const idx = options.indexOf(opt)
-                if (scrollRef.current) scrollRef.current.scrollTop = idx * ITEM_H
-                onChange(opt)
-              }}
-              style={{
-                height: ITEM_H, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                scrollSnapAlign: 'start', fontSize: 14,
-                fontWeight: isSelected ? 600 : 400,
-                color: isSelected ? 'var(--black)' : 'var(--gray-500)',
-                cursor: 'pointer', fontFamily: 'var(--font)',
-              }}
-            >
-              {label}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('thisweek')
@@ -1008,7 +931,17 @@ export default function AdminPage() {
                 </div>
                 <div style={formRowStyle}>
                   <label style={settingsLabelStyle}>Cutoff time</label>
-                  <CutoffTimeRoller value={settingsForm.cutoff_time} onChange={v => setSettingsForm((p: any) => ({ ...p, cutoff_time: v }))} />
+                  <select style={formFieldStyle} value={settingsForm.cutoff_time} onChange={e => setSettingsForm((p: any) => ({ ...p, cutoff_time: e.target.value }))}>
+                    {Array.from({ length: 25 }, (_, i) => {
+                      const totalMins = 7 * 60 + i * 30
+                      const h24 = Math.floor(totalMins / 60)
+                      const m = totalMins % 60
+                      const value = `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+                      const h12 = h24 === 12 ? 12 : h24 % 12
+                      const label = `${h12}:${String(m).padStart(2, '0')} ${h24 < 12 ? 'AM' : 'PM'}`
+                      return <option key={value} value={value}>{label}</option>
+                    })}
+                  </select>
                 </div>
               </div>
 
