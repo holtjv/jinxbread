@@ -28,7 +28,7 @@ export async function PATCH(request: Request) {
   if (!cutoff_time) return NextResponse.json({ error: 'Cutoff time is required' }, { status: 400 })
   if (reminder_offset_hours < 1 || reminder_offset_hours > 6) return NextResponse.json({ error: 'reminder_offset_hours must be 1–6' }, { status: 400 })
   if (par_reminder_day_offset < 1 || par_reminder_day_offset > 6) return NextResponse.json({ error: 'par_reminder_day_offset must be 1–6' }, { status: 400 })
-  if (par_reminder_hour < 7 || par_reminder_hour > 19) return NextResponse.json({ error: 'par_reminder_hour must be 7–19' }, { status: 400 })
+  if (par_reminder_hour < 0 || par_reminder_hour > 23) return NextResponse.json({ error: 'par_reminder_hour must be 0–23' }, { status: 400 })
 
   const { error } = await supabase
     .from('bakery_settings')

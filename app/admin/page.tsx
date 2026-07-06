@@ -966,8 +966,9 @@ export default function AdminPage() {
                 <div style={formRowStyle}>
                   <label style={settingsLabelStyle}>Reminder 2 — hour</label>
                   <select style={formFieldStyle} value={settingsForm.par_reminder_hour} onChange={e => setSettingsForm((p: any) => ({ ...p, par_reminder_hour: parseInt(e.target.value) }))}>
-                    {Array.from({ length: 13 }, (_, i) => i + 7).map(h => {
-                      const label = h === 12 ? '12:00 PM' : h < 12 ? `${h}:00 AM` : `${h - 12}:00 PM`
+                    {Array.from({ length: 24 }, (_, h) => {
+                      const h12 = h === 0 || h === 12 ? 12 : h % 12
+                      const label = `${h12}:00 ${h < 12 ? 'AM' : 'PM'}`
                       return <option key={h} value={h}>{label}</option>
                     })}
                   </select>
