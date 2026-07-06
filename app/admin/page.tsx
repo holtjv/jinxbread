@@ -932,12 +932,12 @@ export default function AdminPage() {
                 <div style={formRowStyle}>
                   <label style={settingsLabelStyle}>Cutoff time</label>
                   <select style={formFieldStyle} value={settingsForm.cutoff_time} onChange={e => setSettingsForm((p: any) => ({ ...p, cutoff_time: e.target.value }))}>
-                    {Array.from({ length: 25 }, (_, i) => {
-                      const totalMins = 7 * 60 + i * 30
+                    {Array.from({ length: 48 }, (_, i) => {
+                      const totalMins = i * 30
                       const h24 = Math.floor(totalMins / 60)
                       const m = totalMins % 60
                       const value = `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-                      const h12 = h24 === 12 ? 12 : h24 % 12
+                      const h12 = h24 === 0 || h24 === 12 ? 12 : h24 % 12
                       const label = `${h12}:${String(m).padStart(2, '0')} ${h24 < 12 ? 'AM' : 'PM'}`
                       return <option key={value} value={value}>{label}</option>
                     })}
