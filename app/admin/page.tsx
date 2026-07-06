@@ -894,7 +894,7 @@ export default function AdminPage() {
 
       {tab === 'settings' && (
         <div style={{ maxWidth: 560 }}>
-          <p className="page-subtitle">Bakery-wide configuration. Changes take effect immediately for all cron jobs and customer-facing copy.</p>
+          <p className="page-subtitle">Bakery-wide configuration. Changes take effect immediately for all ordering windows and customer-facing copy.</p>
           {settingsLoading ? (
             <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>Loading...</p>
           ) : !settingsForm ? (
@@ -949,8 +949,13 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div style={formRowStyle}>
-                <label className="form-label">Sunday reminder — send this many hours before cutoff</label>
+              <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: 28, marginBottom: 4 }}>Reminders</h2>
+              <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 0, marginBottom: 20 }}>
+                Both reminders apply to all customers and all order types.
+              </p>
+
+              <div style={{ ...formRowStyle, marginBottom: 20 }}>
+                <label className="form-label">Reminder 1 — hours before cutoff</label>
                 <select
                   style={formFieldStyle}
                   value={settingsForm.reminder_offset_hours}
@@ -962,14 +967,9 @@ export default function AdminPage() {
                 </select>
               </div>
 
-              <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: 28, marginBottom: 4 }}>PAR reminder</h2>
-              <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 0, marginBottom: 16 }}>
-                Sent to customers who have opted in to the standing-order reminder email.
-              </p>
-
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px' }}>
                 <div style={formRowStyle}>
-                  <label className="form-label">Days before cutoff</label>
+                  <label className="form-label">Reminder 2 — days before cutoff</label>
                   <select
                     style={formFieldStyle}
                     value={settingsForm.par_reminder_day_offset}
@@ -981,7 +981,7 @@ export default function AdminPage() {
                   </select>
                 </div>
                 <div style={formRowStyle}>
-                  <label className="form-label">Send at hour</label>
+                  <label className="form-label">Reminder 2 — send at hour</label>
                   <select
                     style={formFieldStyle}
                     value={settingsForm.par_reminder_hour}
