@@ -7,6 +7,29 @@ const supabase = createClient(
 )
 
 const VALID_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml']
+
+export async function POST(request: Request) {
+  const formData = await request.formData()
+  const file = formData.get('file') as File | null
+  if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
+  if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+    return NextResponse.json({ error: 'Only PNG, JPG, and SVG files are allowed' }, { status: 400 })
+  }
+
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'png'
+  const path = `logo-${Date.now()}.${ext}`
+  const bytes = await file.arrayBuffer()
+
+  const { error } = await supabase.storage
+    .from('logos')
+    .upload(path, bytes, { contentType: file.type, upsert: true })
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(path)
+  return NextResponse.json({ logo_url: publicUrl })
+}
 
 export async function PATCH(request: Request) {
   const body = await request.json()
@@ -19,6 +42,7 @@ export async function PATCH(request: Request) {
     reminder_offset_hours,
     par_reminder_day_offset,
     par_reminder_hour,
+    logo_url,
   } = body
 
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
@@ -40,6 +64,7 @@ export async function PATCH(request: Request) {
       reminder_offset_hours: Number(reminder_offset_hours),
       par_reminder_day_offset: Number(par_reminder_day_offset),
       par_reminder_hour: Number(par_reminder_hour),
+      logo_url: logo_url ?? null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)

@@ -84,6 +84,8 @@ export default function AdminPage() {
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsSaved, setSettingsSaved] = useState(false)
   const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [logoUploading, setLogoUploading] = useState(false)
+  const [logoError, setLogoError] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -390,7 +392,7 @@ export default function AdminPage() {
     setSettingsLoading(true)
     const { data, error } = await supabase
       .from('bakery_settings')
-      .select('id, bakery_name, timezone, cutoff_day, cutoff_time, reminder_offset_hours, par_reminder_day_offset, par_reminder_hour')
+      .select('id, bakery_name, timezone, cutoff_day, cutoff_time, reminder_offset_hours, par_reminder_day_offset, par_reminder_hour, logo_url')
       .single()
     if (data) {
       setSettingsId(data.id)
@@ -402,6 +404,7 @@ export default function AdminPage() {
         reminder_offset_hours: data.reminder_offset_hours,
         par_reminder_day_offset: data.par_reminder_day_offset,
         par_reminder_hour: data.par_reminder_hour,
+        logo_url: data.logo_url ?? null,
       })
     }
     if (error) setSettingsError('Failed to load settings')
@@ -425,6 +428,26 @@ export default function AdminPage() {
     } else {
       setSettingsSaved(true)
       setTimeout(() => setSettingsSaved(false), 4000)
+    }
+  }
+
+  async function handleLogoUpload(file: File) {
+    const ALLOWED = ['image/png', 'image/jpeg', 'image/svg+xml']
+    if (!ALLOWED.includes(file.type)) {
+      setLogoError('Only PNG, JPG, and SVG files are allowed')
+      return
+    }
+    setLogoUploading(true)
+    setLogoError(null)
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch('/api/admin/settings', { method: 'POST', body: formData })
+    const data = await res.json()
+    setLogoUploading(false)
+    if (!res.ok) {
+      setLogoError(data.error || 'Upload failed')
+    } else {
+      setSettingsForm((p: any) => ({ ...p, logo_url: data.logo_url }))
     }
   }
 
@@ -973,6 +996,35 @@ export default function AdminPage() {
                     })}
                   </select>
                 </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 4, marginBottom: 20 }}>
+                <label style={settingsLabelStyle}>Bakery logo</label>
+                {settingsForm.logo_url && (
+                  <div style={{ marginBottom: 12 }}>
+                    <img
+                      src={settingsForm.logo_url}
+                      alt="Bakery logo"
+                      style={{ maxWidth: 200, maxHeight: 80, objectFit: 'contain', display: 'block', marginBottom: 8, border: '1px solid var(--gray-200)', borderRadius: 6, padding: 8, background: '#fff' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setSettingsForm((p: any) => ({ ...p, logo_url: null }))}
+                      style={{ background: 'none', border: 'none', color: 'var(--gray-500)', cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font)', padding: 0, textDecoration: 'underline' }}
+                    >
+                      Remove logo
+                    </button>
+                  </div>
+                )}
+                <input
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.svg"
+                  disabled={logoUploading}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f); e.target.value = '' }}
+                  style={{ fontSize: 13, color: 'var(--gray-700)' }}
+                />
+                {logoUploading && <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 6, marginBottom: 0 }}>Uploading...</p>}
+                {logoError && <p style={{ fontSize: 13, color: 'red', marginTop: 6, marginBottom: 0 }}>{logoError}</p>}
               </div>
 
               {settingsError && <p style={{ color: 'red', marginBottom: 12, fontSize: 14 }}>{settingsError}</p>}
