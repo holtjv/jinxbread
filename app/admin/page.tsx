@@ -1000,7 +1000,10 @@ export default function AdminPage() {
               </div>
 
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 4, marginBottom: 20 }}>
-                <label style={settingsLabelStyle}>Bakery logo</label>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <label style={settingsLabelStyle}>Bakery logo</label>
+                  <span style={{ fontSize: 11, color: 'var(--gray-500)', fontStyle: 'italic' }}>requires refresh</span>
+                </div>
                 {settingsForm.logo_url && (
                   <div style={{ marginBottom: 12 }}>
                     <img
@@ -1029,7 +1032,10 @@ export default function AdminPage() {
               </div>
 
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 4, marginBottom: 20 }}>
-                <label style={settingsLabelStyle}>Sidebar color</label>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <label style={settingsLabelStyle}>Sidebar color</label>
+                  <span style={{ fontSize: 11, color: 'var(--gray-500)', fontStyle: 'italic' }}>requires refresh</span>
+                </div>
                 <div style={{ display: 'flex', gap: 0, marginTop: 6, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--gray-200)', width: 'fit-content' }}>
                   {(['dark', 'light'] as const).map((val, i) => (
                     <button
@@ -1044,7 +1050,7 @@ export default function AdminPage() {
                         border: 'none',
                         borderLeft: i > 0 ? '1px solid var(--gray-200)' : 'none',
                         cursor: 'pointer',
-                        background: settingsForm.sidebar_color === val ? 'var(--accent)' : '#fff',
+                        background: settingsForm.sidebar_color === val ? 'var(--black)' : '#fff',
                         color: settingsForm.sidebar_color === val ? '#fff' : 'var(--gray-700)',
                       }}
                     >
