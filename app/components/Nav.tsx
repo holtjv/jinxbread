@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react'
 export default function Nav() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [bakeryName, setBakeryName] = useState<string>('Jinxbread')
   const supabase = createClient()
   const router = useRouter()
   const pathname = usePathname()
@@ -15,12 +17,20 @@ export default function Nav() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setLoading(false); return }
-      const { data } = await supabase
-        .from('customer_users')
-        .select('customer_id, customers(is_admin)')
-        .eq('email', user.email)
-        .single()
-      setIsAdmin((data?.customers as any)?.is_admin || false)
+      const [userRes, settingsRes] = await Promise.all([
+        supabase
+          .from('customer_users')
+          .select('customer_id, customers(is_admin)')
+          .eq('email', user.email)
+          .single(),
+        supabase
+          .from('bakery_settings')
+          .select('logo_url, bakery_name')
+          .single(),
+      ])
+      setIsAdmin((userRes.data?.customers as any)?.is_admin || false)
+      setLogoUrl(settingsRes.data?.logo_url ?? null)
+      setBakeryName(settingsRes.data?.bakery_name ?? 'Jinxbread')
       setLoading(false)
     }
     load()
@@ -39,7 +49,12 @@ export default function Nav() {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        <img src="/logo.png" alt="Jinxbread" style={{ width: 120, height: 'auto' }} />
+        <img
+          src={logoUrl ?? '/logo.png'}
+          alt={bakeryName}
+          style={{ width: 120, height: 'auto' }}
+          onError={e => { (e.currentTarget as HTMLImageElement).src = '/logo.png' }}
+        />
       </div>
       <nav className="sidebar-nav">
         <a href="/order" className={pathname === '/order' ? 'active' : ''}>
@@ -57,8 +72,8 @@ export default function Nav() {
           </a>
         )}
       </nav>
-      <div className="sidebar-footer">        
-          <a href="/settings"
+      <div className="sidebar-footer">
+        <a href="/settings"
           style={{
             display: 'block',
             fontSize: 13,
@@ -72,7 +87,7 @@ export default function Nav() {
         </a>
         <button onClick={handleLogout}>Sign out</button>
         <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 12 }}>
-          © Jinx Bread LLC 2026
+          © BakersBoss 2026
         </div>
       </div>
     </aside>
