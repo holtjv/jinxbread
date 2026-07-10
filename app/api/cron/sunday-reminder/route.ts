@@ -25,6 +25,13 @@ const DAY_NAME_TO_JS: Record<string, number> = {
   thursday: 4, friday: 5, saturday: 6,
 }
 
+function fmtCutoffTime(timeStr: string): string {
+  const [h, m] = timeStr.split(':').map(Number)
+  const period = h < 12 ? 'AM' : 'PM'
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`
+}
+
 function getWeekRange(fromDate: Date): { weekStart: string; weekEnd: string } {
   const day = fromDate.getUTCDay()
   let tueDiff = 2 - day
@@ -52,14 +59,14 @@ export async function GET(request: Request) {
   // --- Fetch tenant settings ---
   const { data: settings, error: settingsError } = await supabase
     .from('bakery_settings')
-    .select('timezone, cutoff_day, cutoff_time, reminder_offset_hours, last_sunday_reminder_sent_at')
+    .select('timezone, cutoff_day, cutoff_time, reminder_offset_hours, last_sunday_reminder_sent_at, logo_url')
     .single()
 
   if (settingsError || !settings) {
     return NextResponse.json({ error: 'Failed to load bakery_settings', detail: settingsError?.message }, { status: 500 })
   }
 
-  const { timezone, cutoff_day, cutoff_time, reminder_offset_hours, last_sunday_reminder_sent_at } = settings
+  const { timezone, cutoff_day, cutoff_time, reminder_offset_hours, last_sunday_reminder_sent_at, logo_url } = settings
 
   // --- Determine target fire moment in tenant timezone ---
   // Fire reminder_offset_hours before cutoff, on cutoff_day
@@ -110,6 +117,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  const logoSrc = logo_url ?? `${APP_URL}/logo.png`
+  const cutoffTimeDisplay = fmtCutoffTime(cutoff_time)
+  const submitH = (cutoffHour + 1) % 24
+  const submitTimeDisplay = fmtCutoffTime(`${String(submitH).padStart(2, '0')}:${String(cutoffMin).padStart(2, '0')}:00`)
+
   const weekRange = `${fmtShort(weekStart)}–${fmtShort(weekEnd)}`
   const orderUrl = `${APP_URL}/order`
   const parUrl = `${APP_URL}/par`
@@ -124,8 +136,8 @@ export async function GET(request: Request) {
       await resend.emails.send({
         from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
         to: customer.email,
-        subject: `Orders close at noon today — ${weekRange}`,
-        html: buildSundayReminderHtml(firstName, weekRange, orderUrl, parUrl),
+        subject: `Orders close at ${cutoffTimeDisplay} today — ${weekRange}`,
+        html: buildSundayReminderHtml(firstName, weekRange, orderUrl, parUrl, logoSrc, cutoffTimeDisplay, submitTimeDisplay),
       })
       notified.push(customer.email)
     } catch (err: any) {
@@ -155,20 +167,23 @@ function buildSundayReminderHtml(
   weekRange: string,
   orderUrl: string,
   parUrl: string,
+  logoSrc: string,
+  cutoffTimeDisplay: string,
+  submitTimeDisplay: string,
 ): string {
   return `
 <!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
-  <img src="${APP_URL}/logo.png" alt="${BAKERY_NAME}" style="width: 80px; height: auto; margin-bottom: 24px;" />
-  <h2 style="margin: 0 0 8px 0; font-size: 20px;">Orders close at noon today</h2>
+  <img src="${logoSrc}" alt="${BAKERY_NAME}" style="width: 80px; height: auto; margin-bottom: 24px;" />
+  <h2 style="margin: 0 0 8px 0; font-size: 20px;">Orders close at ${cutoffTimeDisplay} today</h2>
   <p style="color: #555; margin: 0 0 16px 0;">Hi ${firstName},</p>
   <p style="color: #555; margin: 0 0 16px 0;">
-    Just a heads up — orders for the week of <strong>${weekRange}</strong> close today at noon.
-    Standing orders submit automatically at 1pm.
+    Just a heads up — orders for the week of <strong>${weekRange}</strong> close today at ${cutoffTimeDisplay}.
+    Standing orders submit automatically at ${submitTimeDisplay}.
   </p>
   <p style="color: #555; margin: 0 0 16px 0;">
-    Need to make changes or place a one-time order? You've got until noon.
+    Need to make changes or place a one-time order? You've got until ${cutoffTimeDisplay}.
   </p>
   <p style="color: #555; margin: 0 0 24px 0;">Place and track your ${BAKERY_NAME} orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
   <table style="margin: 0 0 24px 0;">
@@ -191,6 +206,7 @@ function buildSundayReminderHtml(
   <p style="color: #bbb; font-size: 12px; margin: 0;">
     ${BAKERY_NAME} · <a href="${APP_URL}/settings" style="color: #bbb;">Manage notifications</a>
   </p>
+  <p style="font-size: 11px; color: #999; text-align: center; margin-top: 24px;">Proofed by BakersBoss</p>
 </body>
 </html>
 `

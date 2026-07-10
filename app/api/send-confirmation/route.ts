@@ -14,6 +14,13 @@ const BAKERY_NAME = process.env.BAKERY_NAME!
 const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
+function fmtCutoffTime(timeStr: string): string {
+  const [h, m] = timeStr.split(':').map(Number)
+  const period = h < 12 ? 'AM' : 'PM'
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`
+}
+
 async function sendAlertEmail(intendedTo: string, emailType: string, errorMsg: string) {
   try {
     await resend.emails.send({
@@ -34,34 +41,42 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
-  const { data: customer } = await supabase
-    .from('customers')
-    .select('name, email, contact_name')
-    .eq('id', customer_id)
-    .single()
+  const [{ data: customer }, { data: settings }, { data: orders }] = await Promise.all([
+    supabase
+      .from('customers')
+      .select('name, email, contact_name')
+      .eq('id', customer_id)
+      .single(),
+    supabase
+      .from('bakery_settings')
+      .select('logo_url, cutoff_time')
+      .single(),
+    supabase
+      .from('orders')
+      .select(`
+        id, delivery_date, delivery_window_id, is_par,
+        delivery_window:delivery_windows (label, day_of_week),
+        order_items (
+          quantity, sliced,
+          product:products (name, sku)
+        )
+      `)
+      .eq('customer_id', customer_id)
+      .gte('delivery_date', week_start)
+      .lte('delivery_date', week_end)
+      .order('delivery_date', { ascending: true }),
+  ])
 
   if (!customer) {
     return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   }
 
-  const { data: orders } = await supabase
-    .from('orders')
-    .select(`
-      id, delivery_date, delivery_window_id, is_par,
-      delivery_window:delivery_windows (label, day_of_week),
-      order_items (
-        quantity, sliced,
-        product:products (name, sku)
-      )
-    `)
-    .eq('customer_id', customer_id)
-    .gte('delivery_date', week_start)
-    .lte('delivery_date', week_end)
-    .order('delivery_date', { ascending: true })
-
   if (!orders || orders.length === 0) {
     return NextResponse.json({ error: 'No orders found for this week' }, { status: 404 })
   }
+
+  const logoSrc = settings?.logo_url ?? `${APP_URL}/logo.png`
+  const cutoffTimeDisplay = settings?.cutoff_time ? fmtCutoffTime(settings.cutoff_time) : 'noon'
 
   const firstName = customer.contact_name?.split(' ')[0] || customer.name
   const isPar = orders.every((o: any) => o.is_par)
@@ -105,13 +120,13 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
 <!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
-  <img src="${APP_URL}/logo.png" alt="${BAKERY_NAME}" style="width: 80px; height: auto; margin-bottom: 24px;" />
+  <img src="${logoSrc}" alt="${BAKERY_NAME}" style="width: 80px; height: auto; margin-bottom: 24px;" />
   <p style="color: #555; margin: 0 0 12px 0;">Hi ${firstName},</p>
   <p style="color: #555; margin: 0 0 20px 0;">${actionText}</p>
   <p style="color: #555; margin: 0 0 20px 0;">Place and track your ${BAKERY_NAME} orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
   <div style="background: #f0f7ff; border-left: 3px solid #2563eb; padding: 12px 16px; margin-bottom: 28px; border-radius: 0 6px 6px 0;">
     <p style="margin: 0; font-size: 14px; font-weight: 700; color: #1a1a1a;">
-      You may edit this order until ${cutoff_string} at noon.
+      You may edit this order until ${cutoff_string} at ${cutoffTimeDisplay}.
     </p>
   </div>
   ${orderRowsHtml}
@@ -123,6 +138,7 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
   </p>
   <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
   <p style="color: #bbb; font-size: 12px; margin: 0;">${BAKERY_NAME} · Reply to this email with any questions.</p>
+  <p style="font-size: 11px; color: #999; text-align: center; margin-top: 24px;">Proofed by BakersBoss</p>
 </body>
 </html>
 `

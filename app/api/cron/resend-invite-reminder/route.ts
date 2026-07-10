@@ -30,10 +30,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Fetch all customer_users with their customer name
-  const { data: customerUsers, error: cuError } = await supabase
-    .from('customer_users')
-    .select('email, created_at, customer_id, customers(name)')
+  const [{ data: customerUsers, error: cuError }, { data: settings }] = await Promise.all([
+    supabase
+      .from('customer_users')
+      .select('email, created_at, customer_id, customers(name)'),
+    supabase
+      .from('bakery_settings')
+      .select('logo_url')
+      .single(),
+  ])
 
   if (cuError) {
     return NextResponse.json({ error: cuError.message }, { status: 500 })
@@ -57,6 +62,8 @@ export async function GET(request: Request) {
       .map(u => u.email)
   )
 
+  const logoSrc = settings?.logo_url ?? `${APP_URL}/logo.png`
+
   const results: { email: string; reminder: number }[] = []
   const errors: { email: string; error: string }[] = []
 
@@ -79,7 +86,7 @@ export async function GET(request: Request) {
 
     // Resend the invite (generates a fresh magic link for unconfirmed users)
     const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
-      redirectTo: '${process.env.NEXT_PUBLIC_APP_URL}/welcome',
+      redirectTo: `${APP_URL}/welcome`,
     })
 
     if (inviteError) {
@@ -97,6 +104,7 @@ export async function GET(request: Request) {
 <!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
+  <img src="${logoSrc}" alt="${BAKERY_NAME}" style="width: 80px; height: auto; margin-bottom: 24px;" />
   <p style="font-size: 16px; margin: 0 0 16px 0;">Hi ${customerName},</p>
   <p style="font-size: 15px; margin: 0 0 16px 0;">${intro}</p>
   <p style="font-size: 15px; margin: 0 0 24px 0;">Place and track your ${BAKERY_NAME} orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
@@ -105,6 +113,8 @@ export async function GET(request: Request) {
     Sign in to ${BAKERY_NAME}
   </a>
   <p style="font-size: 13px; color: #888; margin: 32px 0 0 0;">If you have any questions, just reply to this email.</p>
+  <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
+  <p style="font-size: 11px; color: #999; text-align: center; margin: 0;">Proofed by BakersBoss</p>
 </body>
 </html>
     `
