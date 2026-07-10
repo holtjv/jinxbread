@@ -392,7 +392,7 @@ export default function AdminPage() {
     setSettingsLoading(true)
     const { data, error } = await supabase
       .from('bakery_settings')
-      .select('id, bakery_name, timezone, cutoff_day, cutoff_time, reminder_offset_hours, par_reminder_day_offset, par_reminder_hour, logo_url')
+      .select('id, bakery_name, timezone, cutoff_day, cutoff_time, reminder_offset_hours, par_reminder_day_offset, par_reminder_hour, logo_url, sidebar_color')
       .single()
     if (data) {
       setSettingsId(data.id)
@@ -405,6 +405,7 @@ export default function AdminPage() {
         par_reminder_day_offset: data.par_reminder_day_offset,
         par_reminder_hour: data.par_reminder_hour,
         logo_url: data.logo_url ?? null,
+        sidebar_color: data.sidebar_color ?? 'dark',
       })
     }
     if (error) setSettingsError('Failed to load settings')
@@ -1025,6 +1026,32 @@ export default function AdminPage() {
                 />
                 {logoUploading && <p style={{ fontSize: 13, color: 'var(--gray-500)', marginTop: 6, marginBottom: 0 }}>Uploading...</p>}
                 {logoError && <p style={{ fontSize: 13, color: 'red', marginTop: 6, marginBottom: 0 }}>{logoError}</p>}
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 4, marginBottom: 20 }}>
+                <label style={settingsLabelStyle}>Sidebar color</label>
+                <div style={{ display: 'flex', gap: 0, marginTop: 6, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--gray-200)', width: 'fit-content' }}>
+                  {(['dark', 'light'] as const).map((val, i) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setSettingsForm((p: any) => ({ ...p, sidebar_color: val }))}
+                      style={{
+                        padding: '8px 20px',
+                        fontSize: 13,
+                        fontFamily: 'var(--font)',
+                        fontWeight: settingsForm.sidebar_color === val ? 600 : 400,
+                        border: 'none',
+                        borderLeft: i > 0 ? '1px solid var(--gray-200)' : 'none',
+                        cursor: 'pointer',
+                        background: settingsForm.sidebar_color === val ? 'var(--accent)' : '#fff',
+                        color: settingsForm.sidebar_color === val ? '#fff' : 'var(--gray-700)',
+                      }}
+                    >
+                      {val.charAt(0).toUpperCase() + val.slice(1)}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {settingsError && <p style={{ color: 'red', marginBottom: 12, fontSize: 14 }}>{settingsError}</p>}

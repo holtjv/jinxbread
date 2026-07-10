@@ -9,6 +9,7 @@ export default function Nav() {
   const [loading, setLoading] = useState(true)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [bakeryName, setBakeryName] = useState<string>('Jinxbread')
+  const [sidebarColor, setSidebarColor] = useState<'dark' | 'light'>('dark')
   const supabase = createClient()
   const router = useRouter()
   const pathname = usePathname()
@@ -25,12 +26,13 @@ export default function Nav() {
           .single(),
         supabase
           .from('bakery_settings')
-          .select('logo_url, bakery_name')
+          .select('logo_url, bakery_name, sidebar_color')
           .single(),
       ])
       setIsAdmin((userRes.data?.customers as any)?.is_admin || false)
       setLogoUrl(settingsRes.data?.logo_url ?? null)
       setBakeryName(settingsRes.data?.bakery_name ?? 'Jinxbread')
+      setSidebarColor(settingsRes.data?.sidebar_color === 'light' ? 'light' : 'dark')
       setLoading(false)
     }
     load()
@@ -46,9 +48,48 @@ export default function Nav() {
   if (pathname === '/welcome') return null
   if (pathname === '/onboarding') return null
 
+  const isLight = sidebarColor === 'light'
+
+  const sidebarStyle = isLight
+    ? { background: '#fff', color: 'var(--gray-900)', borderRight: '1px solid var(--gray-200)' }
+    : {}
+
+  const logoDivStyle = isLight
+    ? { borderBottom: '1px solid var(--gray-200)' }
+    : {}
+
+  const linkStyle = (active: boolean) => isLight
+    ? {
+        color: active ? 'var(--accent)' : 'var(--gray-700)',
+        background: active ? 'rgba(0,0,0,0.04)' : undefined,
+        borderLeft: active ? '3px solid var(--accent)' : undefined,
+        paddingLeft: active ? 17 : undefined,
+      }
+    : {}
+
+  const footerStyle = isLight ? { borderTop: '1px solid var(--gray-200)' } : {}
+
+  const settingsLinkStyle = isLight
+    ? {
+        color: pathname === '/settings' ? 'var(--accent)' : 'var(--gray-600)',
+        fontWeight: pathname === '/settings' ? 600 : 400,
+      }
+    : {
+        color: pathname === '/settings' ? '#fff' : 'rgba(255,255,255,0.65)',
+        fontWeight: pathname === '/settings' ? 600 : 400,
+      }
+
+  const signOutButtonStyle = isLight
+    ? { border: '1px solid var(--gray-300)', color: 'var(--gray-700)' }
+    : {}
+
+  const copyrightStyle = isLight
+    ? { color: 'var(--gray-500)' }
+    : { color: 'rgba(255,255,255,0.4)' }
+
   return (
-    <aside className="sidebar">
-      <div className="sidebar-logo">
+    <aside className="sidebar" style={sidebarStyle}>
+      <div className="sidebar-logo" style={logoDivStyle}>
         <img
           src={logoUrl ?? '/logo.png'}
           alt={bakeryName}
@@ -57,36 +98,36 @@ export default function Nav() {
         />
       </div>
       <nav className="sidebar-nav">
-        <a href="/order" className={pathname === '/order' ? 'active' : ''}>
+        <a href="/order" className={pathname === '/order' ? 'active' : ''} style={linkStyle(pathname === '/order')}>
           One-time Order
         </a>
-        <a href="/par" className={pathname === '/par' ? 'active' : ''}>
+        <a href="/par" className={pathname === '/par' ? 'active' : ''} style={linkStyle(pathname === '/par')}>
           Standing Order
         </a>
-        <a href="/my-orders" className={pathname === '/my-orders' ? 'active' : ''}>
+        <a href="/my-orders" className={pathname === '/my-orders' ? 'active' : ''} style={linkStyle(pathname === '/my-orders')}>
           My Orders
         </a>
         {isAdmin && (
-          <a href="/admin" className={pathname.startsWith('/admin') ? 'active' : ''}>
+          <a href="/admin" className={pathname.startsWith('/admin') ? 'active' : ''} style={linkStyle(pathname.startsWith('/admin'))}>
             Admin
           </a>
         )}
       </nav>
-      <div className="sidebar-footer">
-        <a href="/settings"
+      <div className="sidebar-footer" style={footerStyle}>
+        <a
+          href="/settings"
           style={{
             display: 'block',
             fontSize: 13,
             textDecoration: 'none',
             marginBottom: 12,
-            fontWeight: pathname === '/settings' ? 600 : 400,
-            color: pathname === '/settings' ? '#fff' : 'rgba(255,255,255,0.65)',
+            ...settingsLinkStyle,
           }}
         >
           Settings
         </a>
-        <button onClick={handleLogout}>Sign out</button>
-        <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 12 }}>
+        <button onClick={handleLogout} style={signOutButtonStyle}>Sign out</button>
+        <div style={{ fontSize: 11, marginTop: 12, ...copyrightStyle }}>
           © BakersBoss 2026
         </div>
       </div>

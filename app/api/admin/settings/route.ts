@@ -8,6 +8,7 @@ const supabase = createClient(
 
 const VALID_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml']
+const VALID_SIDEBAR_COLORS = ['dark', 'light']
 
 export async function POST(request: Request) {
   const formData = await request.formData()
@@ -43,6 +44,7 @@ export async function PATCH(request: Request) {
     par_reminder_day_offset,
     par_reminder_hour,
     logo_url,
+    sidebar_color,
   } = body
 
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
@@ -53,6 +55,7 @@ export async function PATCH(request: Request) {
   if (reminder_offset_hours < 1 || reminder_offset_hours > 6) return NextResponse.json({ error: 'reminder_offset_hours must be 1–6' }, { status: 400 })
   if (par_reminder_day_offset < 1 || par_reminder_day_offset > 6) return NextResponse.json({ error: 'par_reminder_day_offset must be 1–6' }, { status: 400 })
   if (par_reminder_hour < 0 || par_reminder_hour > 23) return NextResponse.json({ error: 'par_reminder_hour must be 0–23' }, { status: 400 })
+  if (!VALID_SIDEBAR_COLORS.includes(sidebar_color)) return NextResponse.json({ error: 'sidebar_color must be "dark" or "light"' }, { status: 400 })
 
   const { error } = await supabase
     .from('bakery_settings')
@@ -65,6 +68,7 @@ export async function PATCH(request: Request) {
       par_reminder_day_offset: Number(par_reminder_day_offset),
       par_reminder_hour: Number(par_reminder_hour),
       logo_url: logo_url ?? null,
+      sidebar_color,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
