@@ -20,7 +20,7 @@ function fmtCutoffTime(timeStr: string): string {
   return `${h12}:${String(m).padStart(2, '0')} ${period}`
 }
 
-async function sendAlertEmail(intendedTo: string, emailType: string, errorMsg: string) {
+async function sendAlertEmail(intendedTo: string, emailType: string, errorMsg: string, bakeryName: string) {
   try {
     await resend.emails.send({
       from: `${bakeryName} <${BAKERY_FROM_EMAIL}>`,
@@ -172,7 +172,7 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
     })
   } catch (err: any) {
     console.error('send-confirmation: customer email failed:', err)
-    await sendAlertEmail(customer.email, 'order confirmation', err.message)
+    await sendAlertEmail(customer.email, 'order confirmation', err.message, bakeryName)
     emailFailed = true
   }
 
@@ -186,7 +186,7 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
       })
     } catch (err: any) {
       console.error('send-confirmation: bakery notification failed:', err)
-      await sendAlertEmail(BAKERY_ADMIN_EMAIL, 'bakery order notification', err.message)
+      await sendAlertEmail(BAKERY_ADMIN_EMAIL, 'bakery order notification', err.message, bakeryName)
     }
   }
 
