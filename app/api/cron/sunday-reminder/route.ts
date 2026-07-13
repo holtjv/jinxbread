@@ -16,7 +16,6 @@ const supabase = createClient(
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
-const BAKERY_NAME = process.env.BAKERY_NAME!
 const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
@@ -59,14 +58,14 @@ export async function GET(request: Request) {
   // --- Fetch tenant settings ---
   const { data: settings, error: settingsError } = await supabase
     .from('bakery_settings')
-    .select('timezone, cutoff_day, cutoff_time, reminder_offset_hours, last_sunday_reminder_sent_at, logo_url')
+    .select('timezone, cutoff_day, cutoff_time, reminder_offset_hours, last_sunday_reminder_sent_at, logo_url, bakery_name')
     .single()
 
   if (settingsError || !settings) {
     return NextResponse.json({ error: 'Failed to load bakery_settings', detail: settingsError?.message }, { status: 500 })
   }
 
-  const { timezone, cutoff_day, cutoff_time, reminder_offset_hours, last_sunday_reminder_sent_at, logo_url } = settings
+  const { timezone, cutoff_day, cutoff_time, reminder_offset_hours, last_sunday_reminder_sent_at, logo_url, bakery_name } = settings
 
   // --- Determine target fire moment in tenant timezone ---
   // Fire reminder_offset_hours before cutoff, on cutoff_day
@@ -117,6 +116,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  const bakeryName = bakery_name ?? 'Your Bakery'
   const logoSrc = logo_url ?? `${APP_URL}/logo.png`
   const cutoffTimeDisplay = fmtCutoffTime(cutoff_time)
   const submitH = (cutoffHour + 1) % 24
@@ -134,10 +134,10 @@ export async function GET(request: Request) {
 
     try {
       await resend.emails.send({
-        from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
+        from: `${bakeryName} <${BAKERY_FROM_EMAIL}>`,
         to: customer.email,
         subject: `Orders close at ${cutoffTimeDisplay} today — ${weekRange}`,
-        html: buildSundayReminderHtml(firstName, weekRange, orderUrl, parUrl, logoSrc, cutoffTimeDisplay, submitTimeDisplay),
+        html: buildSundayReminderHtml(firstName, weekRange, orderUrl, parUrl, logoSrc, cutoffTimeDisplay, submitTimeDisplay, bakeryName),
       })
       notified.push(customer.email)
     } catch (err: any) {
@@ -145,7 +145,7 @@ export async function GET(request: Request) {
       errors.push(`Failed to send to ${customer.email}: ${err.message}`)
       try {
         await resend.emails.send({
-          from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
+          from: `${bakeryName} <${BAKERY_FROM_EMAIL}>`,
           to: BAKERY_ADMIN_EMAIL,
           subject: 'Email Send Failure: sunday-reminder',
           html: `<p>Failed to send <strong>Sunday reminder</strong> to <strong>${customer.email}</strong>.</p><p>Error: ${err.message}</p>`,
@@ -170,12 +170,13 @@ function buildSundayReminderHtml(
   logoSrc: string,
   cutoffTimeDisplay: string,
   submitTimeDisplay: string,
+  bakeryName: string,
 ): string {
   return `
 <!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
-  <img src="${logoSrc}" alt="${BAKERY_NAME}" style="width: 80px; height: auto; margin-bottom: 24px;" />
+  <img src="${logoSrc}" alt="${bakeryName}" style="width: 80px; height: auto; margin-bottom: 24px;" />
   <h2 style="margin: 0 0 8px 0; font-size: 20px;">Orders close at ${cutoffTimeDisplay} today</h2>
   <p style="color: #555; margin: 0 0 16px 0;">Hi ${firstName},</p>
   <p style="color: #555; margin: 0 0 16px 0;">
@@ -185,7 +186,7 @@ function buildSundayReminderHtml(
   <p style="color: #555; margin: 0 0 16px 0;">
     Need to make changes or place a one-time order? You've got until ${cutoffTimeDisplay}.
   </p>
-  <p style="color: #555; margin: 0 0 24px 0;">Place and track your ${BAKERY_NAME} orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
+  <p style="color: #555; margin: 0 0 24px 0;">Place and track your ${bakeryName} orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
   <table style="margin: 0 0 24px 0;">
     <tr>
       <td style="padding-right: 12px;">
@@ -204,7 +205,7 @@ function buildSundayReminderHtml(
   </table>
   <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
   <p style="color: #bbb; font-size: 12px; margin: 0;">
-    ${BAKERY_NAME} · <a href="${APP_URL}/settings" style="color: #bbb;">Manage notifications</a>
+    ${bakeryName} · <a href="${APP_URL}/settings" style="color: #bbb;">Manage notifications</a>
   </p>
   <p style="font-size: 11px; color: #999; text-align: center; margin-top: 24px;">Proofed by BakersBoss</p>
 </body>

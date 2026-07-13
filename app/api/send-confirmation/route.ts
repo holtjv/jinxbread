@@ -10,7 +10,6 @@ const supabase = createClient(
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const BAKERY_ADMIN_EMAIL = process.env.BAKERY_ADMIN_EMAIL!
-const BAKERY_NAME = process.env.BAKERY_NAME!
 const BAKERY_FROM_EMAIL = process.env.BAKERY_FROM_EMAIL!
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 
@@ -24,7 +23,7 @@ function fmtCutoffTime(timeStr: string): string {
 async function sendAlertEmail(intendedTo: string, emailType: string, errorMsg: string) {
   try {
     await resend.emails.send({
-      from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
+      from: `${bakeryName} <${BAKERY_FROM_EMAIL}>`,
       to: BAKERY_ADMIN_EMAIL,
       subject: 'Email Send Failure: send-confirmation',
       html: `<p>Failed to send <strong>${emailType}</strong> to <strong>${intendedTo}</strong>.</p><p>Error: ${errorMsg}</p>`,
@@ -49,7 +48,7 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
       .single(),
     supabase
       .from('bakery_settings')
-      .select('logo_url, cutoff_time')
+      .select('logo_url, cutoff_time, bakery_name')
       .single(),
     supabase
       .from('orders')
@@ -75,12 +74,13 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
     return NextResponse.json({ error: 'No orders found for this week' }, { status: 404 })
   }
 
+  const bakeryName = settings?.bakery_name ?? 'Your Bakery'
   const logoSrc = settings?.logo_url ?? `${APP_URL}/logo.png`
   const cutoffTimeDisplay = settings?.cutoff_time ? fmtCutoffTime(settings.cutoff_time) : 'noon'
 
   const firstName = customer.contact_name?.split(' ')[0] || customer.name
   const isPar = orders.every((o: any) => o.is_par)
-  const subject = `Your ${BAKERY_NAME} order for ${week_range}`
+  const subject = `Your ${bakeryName} order for ${week_range}`
 
   const actionText = isPar
     ? `Your standing order for <strong>${week_range}</strong> has been automatically submitted.`
@@ -120,10 +120,10 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
 <!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 16px; color: #1a1a1a;">
-  <img src="${logoSrc}" alt="${BAKERY_NAME}" style="width: 80px; height: auto; margin-bottom: 24px;" />
+  <img src="${logoSrc}" alt="${bakeryName}" style="width: 80px; height: auto; margin-bottom: 24px;" />
   <p style="color: #555; margin: 0 0 12px 0;">Hi ${firstName},</p>
   <p style="color: #555; margin: 0 0 20px 0;">${actionText}</p>
-  <p style="color: #555; margin: 0 0 20px 0;">Place and track your ${BAKERY_NAME} orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
+  <p style="color: #555; margin: 0 0 20px 0;">Place and track your ${bakeryName} orders online — no more back-and-forth emails, and your order history is always there when you need it.</p>
   <div style="background: #f0f7ff; border-left: 3px solid #2563eb; padding: 12px 16px; margin-bottom: 28px; border-radius: 0 6px 6px 0;">
     <p style="margin: 0; font-size: 14px; font-weight: 700; color: #1a1a1a;">
       You may edit this order until ${cutoff_string} at ${cutoffTimeDisplay}.
@@ -137,7 +137,7 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
     </a>
   </p>
   <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
-  <p style="color: #bbb; font-size: 12px; margin: 0;">${BAKERY_NAME} · Reply to this email with any questions.</p>
+  <p style="color: #bbb; font-size: 12px; margin: 0;">${bakeryName} · Reply to this email with any questions.</p>
   <p style="font-size: 11px; color: #999; text-align: center; margin-top: 24px;">Proofed by BakersBoss</p>
 </body>
 </html>
@@ -165,7 +165,7 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
   let emailFailed = false
   try {
     await resend.emails.send({
-      from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
+      from: `${bakeryName} <${BAKERY_FROM_EMAIL}>`,
       to: customer.email,
       subject,
       html: customerHtml,
@@ -179,7 +179,7 @@ const { customer_id, week_start, week_end, week_range, cutoff_string, is_editing
   if (!is_admin) {
     try {
       await resend.emails.send({
-        from: `${BAKERY_NAME} <${BAKERY_FROM_EMAIL}>`,
+        from: `${bakeryName} <${BAKERY_FROM_EMAIL}>`,
         to: BAKERY_ADMIN_EMAIL,
         subject: bakerySubject,
         html: bakeryHtml,
