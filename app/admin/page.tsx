@@ -406,36 +406,29 @@ export default function AdminPage() {
     setDeliveryDayError(null)
     const existing = deliveryWindows.find(w => w.day_of_week === dayMeta.dayOfWeek)
 
+    let body: Record<string, any>
     if (!existing) {
-      const { error } = await supabase.from('delivery_windows').insert({
-        label: dayMeta.fullName,
-        day_of_week: dayMeta.dayOfWeek,
-        sort_order: dayMeta.sortOrder,
-        active: true,
-      })
-      if (error) { setDeliveryDayError(error.message); setSavingDeliveryDays(false); return }
+      body = { action: 'insert', day_of_week: dayMeta.dayOfWeek, label: dayMeta.fullName, sort_order: dayMeta.sortOrder }
     } else if (existing.active) {
-      const today = new Date().toISOString().split('T')[0]
-      const { data: upcoming } = await supabase
-        .from('orders')
-        .select('id')
-        .eq('delivery_window_id', existing.id)
-        .gte('delivery_date', today)
-        .limit(1)
-      if (upcoming && upcoming.length > 0) {
-        setDeliveryDayError(`There are upcoming orders for ${dayMeta.fullName}. Update those orders before changing this delivery day.`)
-        setSavingDeliveryDays(false)
-        return
-      }
-      const { error } = await supabase.from('delivery_windows').update({ active: false }).eq('id', existing.id)
-      if (error) { setDeliveryDayError(error.message); setSavingDeliveryDays(false); return }
+      body = { action: 'deactivate', id: existing.id, label: dayMeta.fullName }
     } else {
-      const { error } = await supabase.from('delivery_windows').update({ active: true }).eq('id', existing.id)
-      if (error) { setDeliveryDayError(error.message); setSavingDeliveryDays(false); return }
+      body = { action: 'activate', id: existing.id }
     }
 
-    const { data } = await supabase.from('delivery_windows').select('*').order('sort_order')
-    if (data) setDeliveryWindows(data)
+    const res = await fetch('/api/admin/delivery-windows', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      setDeliveryDayError(data.error || 'Failed to update delivery day')
+      setSavingDeliveryDays(false)
+      return
+    }
+
+    const { data: windows } = await supabase.from('delivery_windows').select('*').order('sort_order')
+    if (windows) setDeliveryWindows(windows)
     setSavingDeliveryDays(false)
   }
 
