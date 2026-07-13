@@ -69,6 +69,9 @@ export default function AdminPage() {
   const [productError, setProductError] = useState<string | null>(null)
   const [productSuccess, setProductSuccess] = useState<string | null>(null)
 
+  const [savingDeliveryDays, setSavingDeliveryDays] = useState(false)
+  const [deliveryDayError, setDeliveryDayError] = useState<string | null>(null)
+
   const [userForm, setUserForm] = useState({ email: '', customer_id: '', is_admin: false })
   const [inviting, setInviting] = useState(false)
   const [userError, setUserError] = useState<string | null>(null)
@@ -145,7 +148,7 @@ export default function AdminPage() {
       supabase.from('products').select('id, name, sku, price_cents, unit_label, minimum_quantity').eq('active', true).order('sort_order', { nullsFirst: false }).order('name'),
       supabase.from('products').select('*').order('sort_order', { nullsFirst: false }).order('name'),
       supabase.from('customer_products').select('customer_id, product_id, price_cents'),
-      supabase.from('delivery_windows').select('*').eq('active', true).order('sort_order'),
+      supabase.from('delivery_windows').select('*').order('sort_order'),
     ])
 
     if (ordersRes.data) setOrders(ordersRes.data)
@@ -386,6 +389,54 @@ export default function AdminPage() {
     setEditingProduct(null)
     await loadData()
     setTimeout(() => setProductSuccess(null), 4000)
+  }
+
+  const DELIVERY_DAY_META = [
+    { letter: 'S', fullName: 'Sunday',    dayOfWeek: 'sunday',    sortOrder: 0 },
+    { letter: 'M', fullName: 'Monday',    dayOfWeek: 'monday',    sortOrder: 1 },
+    { letter: 'T', fullName: 'Tuesday',   dayOfWeek: 'tuesday',   sortOrder: 2 },
+    { letter: 'W', fullName: 'Wednesday', dayOfWeek: 'wednesday', sortOrder: 3 },
+    { letter: 'T', fullName: 'Thursday',  dayOfWeek: 'thursday',  sortOrder: 4 },
+    { letter: 'F', fullName: 'Friday',    dayOfWeek: 'friday',    sortOrder: 5 },
+    { letter: 'S', fullName: 'Saturday',  dayOfWeek: 'saturday',  sortOrder: 6 },
+  ]
+
+  async function handleToggleDeliveryDay(dayMeta: typeof DELIVERY_DAY_META[number]) {
+    setSavingDeliveryDays(true)
+    setDeliveryDayError(null)
+    const existing = deliveryWindows.find(w => w.day_of_week === dayMeta.dayOfWeek)
+
+    if (!existing) {
+      const { error } = await supabase.from('delivery_windows').insert({
+        label: dayMeta.fullName,
+        day_of_week: dayMeta.dayOfWeek,
+        sort_order: dayMeta.sortOrder,
+        active: true,
+      })
+      if (error) { setDeliveryDayError(error.message); setSavingDeliveryDays(false); return }
+    } else if (existing.active) {
+      const today = new Date().toISOString().split('T')[0]
+      const { data: upcoming } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('delivery_window_id', existing.id)
+        .gte('delivery_date', today)
+        .limit(1)
+      if (upcoming && upcoming.length > 0) {
+        setDeliveryDayError(`There are upcoming orders for ${dayMeta.fullName}. Update those orders before changing this delivery day.`)
+        setSavingDeliveryDays(false)
+        return
+      }
+      const { error } = await supabase.from('delivery_windows').update({ active: false }).eq('id', existing.id)
+      if (error) { setDeliveryDayError(error.message); setSavingDeliveryDays(false); return }
+    } else {
+      const { error } = await supabase.from('delivery_windows').update({ active: true }).eq('id', existing.id)
+      if (error) { setDeliveryDayError(error.message); setSavingDeliveryDays(false); return }
+    }
+
+    const { data } = await supabase.from('delivery_windows').select('*').order('sort_order')
+    if (data) setDeliveryWindows(data)
+    setSavingDeliveryDays(false)
   }
 
   async function loadSettings() {
@@ -819,6 +870,41 @@ export default function AdminPage() {
               ))}
             </tbody>
           </table>
+
+          <div style={{ marginTop: 40 }}>
+            <h2 style={{ fontSize: 15, marginBottom: 4 }}>Delivery Days</h2>
+            <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 16 }}>
+              Toggle which days of the week are available for delivery.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              {DELIVERY_DAY_META.map(day => {
+                const row = deliveryWindows.find(w => w.day_of_week === day.dayOfWeek)
+                const isActive = row?.active === true
+                return (
+                  <button
+                    key={day.dayOfWeek}
+                    onClick={() => handleToggleDeliveryDay(day)}
+                    disabled={savingDeliveryDays}
+                    style={{
+                      width: 36, height: 36, borderRadius: '50%', border: 'none',
+                      cursor: savingDeliveryDays ? 'not-allowed' : 'pointer',
+                      fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600,
+                      background: isActive ? 'var(--black, #1a1a1a)' : 'transparent',
+                      color: isActive ? '#fff' : 'var(--gray-400)',
+                      outline: isActive ? 'none' : '1.5px solid var(--gray-300)',
+                      transition: 'background 0.15s, color 0.15s',
+                    }}
+                    title={day.fullName}
+                  >
+                    {day.letter}
+                  </button>
+                )
+              })}
+            </div>
+            {deliveryDayError && (
+              <p style={{ color: 'red', fontSize: 13, marginTop: 12, marginBottom: 0 }}>{deliveryDayError}</p>
+            )}
+          </div>
         </div>
       )}
 
