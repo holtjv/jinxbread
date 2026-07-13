@@ -20,6 +20,7 @@ export async function POST(request: Request) {
     }
     const { error } = await supabase.from('delivery_windows').insert({
       label, day_of_week, sort_order, active: true,
+      cutoff_days_before: 2, cutoff_time: '12:00:00',
     })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ ok: true })
