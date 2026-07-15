@@ -54,8 +54,9 @@ export async function POST(request: Request) {
   }
 
   console.log('[invite-user] Calling inviteUserByEmail')
+  console.log('NEXT_PUBLIC_APP_URL:', process.env.NEXT_PUBLIC_APP_URL)
   const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/welcome`,
+    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? 'https://jinxbread-staging.vercel.app'}/welcome`,
   })
 
   if (inviteError) {
