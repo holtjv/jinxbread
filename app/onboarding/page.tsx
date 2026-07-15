@@ -49,7 +49,7 @@ export default function OnboardingPage() {
     },
     {
       title: 'One important thing',
-      detail: `Orders cut off every ${cutoffDay} at ${cutoffTime}. After that, the week locks — get your order in before then.`,
+      detail: `Orders cut off every ${cutoffDay.charAt(0).toUpperCase() + cutoffDay.slice(1)} at ${cutoffTime}. After that, the week locks — get your order in before then.`,
     },
   ]
 
