@@ -10,10 +10,21 @@ export default function WelcomePage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [ready, setReady] = useState(false)
+  const [logoUrl, setLogoUrl] = useState('/logo.png')
+  const [bakeryName, setBakeryName] = useState('Your Bakery')
   const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
+    supabase
+      .from('bakery_settings')
+      .select('logo_url, bakery_name')
+      .single()
+      .then(({ data }) => {
+        if (!data) return
+        if (data.logo_url) setLogoUrl(data.logo_url)
+        if (data.bakery_name) setBakeryName(data.bakery_name)
+      })
     // Process the hash tokens and establish the session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -47,7 +58,7 @@ export default function WelcomePage() {
     return (
       <div className="login-page">
         <div className="login-card">
-          <img src="/logo.png" alt="Jinx Bread" style={{ width: 100, height: 'auto', marginBottom: 24 }} />
+          <img src={logoUrl} alt={bakeryName} style={{ width: 100, height: 'auto', marginBottom: 24 }} />
           <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>Loading...</p>
         </div>
       </div>
@@ -57,7 +68,7 @@ export default function WelcomePage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <img src="/logo.png" alt="Jinx Bread" style={{ width: 100, height: 'auto', marginBottom: 24 }} />
+        <img src={logoUrl} alt={bakeryName} style={{ width: 100, height: 'auto', marginBottom: 24 }} />
         <h1 style={{ marginBottom: 4 }}>Create your account</h1>
         <p style={{ color: 'var(--gray-500)', fontSize: 14, marginTop: 4, marginBottom: 24 }}>
           Set a password to finish creating your account.
