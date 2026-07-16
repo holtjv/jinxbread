@@ -900,22 +900,22 @@ export default function AdminPage() {
             <tbody>
               {allProducts.map((p, i) => (
                 <tr key={p.id}>
-                  <td style={{ padding: '0 6px', whiteSpace: 'nowrap' }}>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {i > 0 ? (
+                  <td style={{ width: 72, padding: '0 6px' }}>
+                    <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                      {i > 0 && (
                         <button
                           onClick={() => handleReorderProduct(i, 'up')}
                           disabled={reorderingProduct}
                           style={{ width: 28, height: 28, border: 'none', borderRadius: 4, cursor: 'pointer', color: 'var(--gray-500)', fontSize: 13, fontFamily: 'var(--font)', background: 'var(--gray-100)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                         >↑</button>
-                      ) : <div style={{ width: 28 }} />}
-                      {i < allProducts.length - 1 ? (
+                      )}
+                      {i < allProducts.length - 1 && (
                         <button
                           onClick={() => handleReorderProduct(i, 'down')}
                           disabled={reorderingProduct}
                           style={{ width: 28, height: 28, border: 'none', borderRadius: 4, cursor: 'pointer', color: 'var(--gray-500)', fontSize: 13, fontFamily: 'var(--font)', background: 'var(--gray-100)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                         >↓</button>
-                      ) : <div style={{ width: 28 }} />}
+                      )}
                     </div>
                   </td>
                   <td style={{ fontWeight: 500 }}>{p.name}</td>
