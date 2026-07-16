@@ -69,6 +69,8 @@ export default function AdminPage() {
   const [productError, setProductError] = useState<string | null>(null)
   const [productSuccess, setProductSuccess] = useState<string | null>(null)
 
+  const [reorderingProduct, setReorderingProduct] = useState(false)
+
   const [savingDeliveryDays, setSavingDeliveryDays] = useState(false)
   const [deliveryDayError, setDeliveryDayError] = useState<string | null>(null)
 
@@ -389,6 +391,38 @@ export default function AdminPage() {
     setEditingProduct(null)
     await loadData()
     setTimeout(() => setProductSuccess(null), 4000)
+  }
+
+  async function handleReorderProduct(index: number, direction: 'up' | 'down') {
+    const newList = [...allProducts]
+    const swapIndex = direction === 'up' ? index - 1 : index + 1
+    if (swapIndex < 0 || swapIndex >= newList.length) return
+
+    // Assign sequential sort_order values if any are null
+    const needsInit = newList.some(p => p.sort_order == null)
+    if (needsInit) {
+      newList.forEach((p, i) => { p.sort_order = i + 1 })
+    }
+
+    // Swap sort_order values between the two products
+    const aOrder = newList[index].sort_order
+    const bOrder = newList[swapIndex].sort_order
+    newList[index] = { ...newList[index], sort_order: bOrder }
+    newList[swapIndex] = { ...newList[swapIndex], sort_order: aOrder }
+
+    setReorderingProduct(true)
+    const res = await fetch('/api/admin/products/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        updates: [
+          { id: newList[index].id, sort_order: newList[index].sort_order },
+          { id: newList[swapIndex].id, sort_order: newList[swapIndex].sort_order },
+        ],
+      }),
+    })
+    setReorderingProduct(false)
+    if (res.ok) await loadData()
   }
 
   const DELIVERY_DAY_META = [
@@ -848,10 +882,24 @@ export default function AdminPage() {
           )}
 
           <table className="data-table">
-            <thead><tr><th>Name</th><th>SKU</th><th>Min/week</th><th>Price</th><th>Sliceable</th><th>Active</th><th></th></tr></thead>
+            <thead><tr><th style={{ width: 48 }}></th><th>Name</th><th>SKU</th><th>Min/week</th><th>Price</th><th>Sliceable</th><th>Active</th><th></th></tr></thead>
             <tbody>
-              {allProducts.map(p => (
+              {allProducts.map((p, i) => (
                 <tr key={p.id}>
+                  <td style={{ padding: '0 4px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      <button
+                        onClick={() => handleReorderProduct(i, 'up')}
+                        disabled={i === 0 || reorderingProduct}
+                        style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? 'var(--gray-200)' : 'var(--gray-400)', fontSize: 11, padding: '1px 4px', fontFamily: 'var(--font)', lineHeight: 1 }}
+                      >↑</button>
+                      <button
+                        onClick={() => handleReorderProduct(i, 'down')}
+                        disabled={i === allProducts.length - 1 || reorderingProduct}
+                        style={{ background: 'none', border: 'none', cursor: i === allProducts.length - 1 ? 'default' : 'pointer', color: i === allProducts.length - 1 ? 'var(--gray-200)' : 'var(--gray-400)', fontSize: 11, padding: '1px 4px', fontFamily: 'var(--font)', lineHeight: 1 }}
+                      >↓</button>
+                    </div>
+                  </td>
                   <td style={{ fontWeight: 500 }}>{p.name}</td>
                   <td style={{ color: 'var(--gray-500)' }}>{p.sku}</td>
                   <td style={{ color: 'var(--gray-500)' }}>{p.minimum_quantity ?? 10}</td>
