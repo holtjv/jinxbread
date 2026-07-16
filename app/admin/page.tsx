@@ -70,6 +70,7 @@ export default function AdminPage() {
   const [productSuccess, setProductSuccess] = useState<string | null>(null)
 
   const [reorderingProduct, setReorderingProduct] = useState(false)
+  const [reorderError, setReorderError] = useState<string | null>(null)
 
   const [savingDeliveryDays, setSavingDeliveryDays] = useState(false)
   const [deliveryDayError, setDeliveryDayError] = useState<string | null>(null)
@@ -394,13 +395,14 @@ export default function AdminPage() {
   }
 
   async function handleReorderProduct(index: number, direction: 'up' | 'down') {
-    const newList = [...allProducts]
     const swapIndex = direction === 'up' ? index - 1 : index + 1
-    if (swapIndex < 0 || swapIndex >= newList.length) return
+    if (swapIndex < 0 || swapIndex >= allProducts.length) return
+
+    const prev = allProducts
+    const newList = prev.map(p => ({ ...p }))
 
     // Assign sequential sort_order values if any are null
-    const needsInit = newList.some(p => p.sort_order == null)
-    if (needsInit) {
+    if (newList.some(p => p.sort_order == null)) {
       newList.forEach((p, i) => { p.sort_order = i + 1 })
     }
 
@@ -410,7 +412,13 @@ export default function AdminPage() {
     newList[index] = { ...newList[index], sort_order: bOrder }
     newList[swapIndex] = { ...newList[swapIndex], sort_order: aOrder }
 
+    // Swap positions in the list for immediate display
+    ;[newList[index], newList[swapIndex]] = [newList[swapIndex], newList[index]]
+
+    setAllProducts(newList)
+    setReorderError(null)
     setReorderingProduct(true)
+
     const res = await fetch('/api/admin/products/reorder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -421,8 +429,13 @@ export default function AdminPage() {
         ],
       }),
     })
+
     setReorderingProduct(false)
-    if (res.ok) await loadData()
+    if (!res.ok) {
+      setAllProducts(prev)
+      const data = await res.json().catch(() => ({}))
+      setReorderError(data.error || 'Failed to reorder')
+    }
   }
 
   const DELIVERY_DAY_META = [
@@ -881,23 +894,28 @@ export default function AdminPage() {
             </div>
           )}
 
+          {reorderError && <p style={{ color: 'red', fontSize: 13, marginBottom: 12 }}>{reorderError}</p>}
           <table className="data-table">
-            <thead><tr><th style={{ width: 48 }}></th><th>Name</th><th>SKU</th><th>Min/week</th><th>Price</th><th>Sliceable</th><th>Active</th><th></th></tr></thead>
+            <thead><tr><th style={{ width: 72 }}></th><th>Name</th><th>SKU</th><th>Min/week</th><th>Price</th><th>Sliceable</th><th>Active</th><th></th></tr></thead>
             <tbody>
               {allProducts.map((p, i) => (
                 <tr key={p.id}>
-                  <td style={{ padding: '0 4px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <button
-                        onClick={() => handleReorderProduct(i, 'up')}
-                        disabled={i === 0 || reorderingProduct}
-                        style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? 'var(--gray-200)' : 'var(--gray-400)', fontSize: 11, padding: '1px 4px', fontFamily: 'var(--font)', lineHeight: 1 }}
-                      >↑</button>
-                      <button
-                        onClick={() => handleReorderProduct(i, 'down')}
-                        disabled={i === allProducts.length - 1 || reorderingProduct}
-                        style={{ background: 'none', border: 'none', cursor: i === allProducts.length - 1 ? 'default' : 'pointer', color: i === allProducts.length - 1 ? 'var(--gray-200)' : 'var(--gray-400)', fontSize: 11, padding: '1px 4px', fontFamily: 'var(--font)', lineHeight: 1 }}
-                      >↓</button>
+                  <td style={{ padding: '0 6px', whiteSpace: 'nowrap' }}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {i > 0 ? (
+                        <button
+                          onClick={() => handleReorderProduct(i, 'up')}
+                          disabled={reorderingProduct}
+                          style={{ width: 28, height: 28, border: 'none', borderRadius: 4, cursor: 'pointer', color: 'var(--gray-500)', fontSize: 13, fontFamily: 'var(--font)', background: 'var(--gray-100)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >↑</button>
+                      ) : <div style={{ width: 28 }} />}
+                      {i < allProducts.length - 1 ? (
+                        <button
+                          onClick={() => handleReorderProduct(i, 'down')}
+                          disabled={reorderingProduct}
+                          style={{ width: 28, height: 28, border: 'none', borderRadius: 4, cursor: 'pointer', color: 'var(--gray-500)', fontSize: 13, fontFamily: 'var(--font)', background: 'var(--gray-100)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >↓</button>
+                      ) : <div style={{ width: 28 }} />}
                     </div>
                   </td>
                   <td style={{ fontWeight: 500 }}>{p.name}</td>
